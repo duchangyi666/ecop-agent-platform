@@ -49,7 +49,8 @@
 
 ## 提交哈希
 
-`9620682`
+- 核心实现：`1309a11` (`feat: add ticket approval and audit models`)
+- 验证与报告：`568bb45` (`test: finalize task 5 verification and report`)
 
 ## 剩余风险
 
