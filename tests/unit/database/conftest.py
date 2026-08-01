@@ -27,6 +27,8 @@ async def session_factory() -> async_sessionmaker[AsyncSession]:
 
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.drop_all)
+
+    async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
 
     factory = async_sessionmaker(engine, expire_on_commit=False)
