@@ -89,7 +89,7 @@ git commit -m "feat: define multi-agent state and contracts"
 - `supervisor_node(state: AgentState) -> dict[str, object]`
 - `route_from_supervisor(state: AgentState) -> str`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 def test_supervisor_routes_refund_request_to_billing_agent():
@@ -103,23 +103,23 @@ def test_supervisor_cannot_route_to_unregistered_agent():
         route_from_supervisor(state_with_route("route_unknown"))
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `python -m pytest tests/unit/agent/test_supervisor_graph.py -q`
 
 Expected: FAIL because the LangGraph main graph is not implemented。
 
-- [ ] **Step 3: 实现主图和 Supervisor**
+- [x] **Step 3: 实现主图和 Supervisor**
 
 使用 `StateGraph(AgentState)` 添加 `normalize_request`、`supervisor_agent` 和条件路由；Supervisor 先使用可替换的结构化决策器，不能直接执行工具；未知路由立即变成 `human_handoff`。
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `python -m pytest tests/unit/agent/test_supervisor_graph.py -q`
 
 Expected: PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add backend/agent/graphs backend/agent/agents backend/agent/nodes tests/unit/agent/test_supervisor_graph.py
