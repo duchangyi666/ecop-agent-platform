@@ -194,7 +194,7 @@ git commit -m "feat: add specialist agent subgraphs"
 - `BillingTool.preview(request)`、`BillingTool.execute(request)`。
 - `evaluate_refund_policy(context) -> PolicyDecision`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 def test_high_risk_refund_requires_approval():
@@ -207,23 +207,23 @@ def test_billing_agent_cannot_access_ticket_tool():
     assert registry.for_agent("billing").names() == ["billing.preview", "billing.execute"]
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `python -m pytest tests/unit/agent/test_billing_tool_policy.py -q`
 
 Expected: FAIL because tool registry and refund policy do not exist。
 
-- [ ] **Step 3: 实现最小工具与策略门**
+- [x] **Step 3: 实现最小工具与策略门**
 
 复用 Phase 2 的 `BillingRepository`、`SupportRepository` 和 `UnitOfWork`；preview 只读并生成幂等键，execute 只接受低风险或已审批动作。所有查询使用 `TenantScope`，未知执行状态禁止自动重试。
 
-- [ ] **Step 4: 运行单元与集成测试**
+- [x] **Step 4: 运行单元与集成测试**
 
 Run: `python -m pytest tests/unit/agent/test_billing_tool_policy.py tests/integration/agent/test_refund_workflow.py -q`
 
 Expected: PASS；低风险可执行、高风险进入审批、跨租户支付不可见、重复幂等键不产生第二条退款。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add backend/agent/tools backend/agent/policies backend/agent/graphs tests/unit/agent tests/integration/agent
