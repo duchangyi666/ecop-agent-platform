@@ -13,6 +13,15 @@ def test_approved_request_cannot_move_to_rejected() -> None:
         transition_approval(ApprovalStatus.APPROVED, ApprovalStatus.REJECTED)
 
 
+def test_rejected_request_is_terminal() -> None:
+    with pytest.raises(InvalidStateTransition):
+        transition_approval(ApprovalStatus.REJECTED, ApprovalStatus.PENDING)
+
+
+def test_modified_request_can_return_to_pending() -> None:
+    assert transition_approval(ApprovalStatus.MODIFIED, ApprovalStatus.PENDING) is ApprovalStatus.PENDING
+
+
 def test_more_information_required_can_return_to_pending() -> None:
     assert transition_approval(
         ApprovalStatus.MORE_INFORMATION_REQUIRED,
