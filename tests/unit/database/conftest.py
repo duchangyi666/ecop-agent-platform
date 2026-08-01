@@ -14,14 +14,14 @@ TEST_DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 
 @pytest.fixture
 def metadata():
-    from backend.database.models.identity import Tenant, User  # noqa: F401
+    import backend.database.models  # noqa: F401
 
     return Base.metadata
 
 
 @pytest_asyncio.fixture
 async def session_factory() -> async_sessionmaker[AsyncSession]:
-    from backend.database.models.identity import Tenant, User  # noqa: F401
+    import backend.database.models  # noqa: F401
 
     engine = create_async_engine(TEST_DATABASE_URL, future=True)
 
