@@ -29,6 +29,12 @@ def upgrade() -> None:
         sa.Column("metadata_summary", sa.JSON(), nullable=False),
         sa.Column("metadata_hash", sa.String(length=128), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["tenant_id", "actor_id"],
+            ["users.tenant_id", "users.id"],
+            name="fk_audit_logs_tenant_actor",
+            ondelete="RESTRICT",
+        ),
         sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], name=op.f("fk_audit_logs_tenant_id_tenants"), ondelete="RESTRICT"),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_audit_logs")),
     )

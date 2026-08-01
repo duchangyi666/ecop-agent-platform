@@ -2,7 +2,7 @@
 
 ## 状态
 
-已完成。工单、审批和审计模型与 Repository 已就位，`003_support_tables.py` 已收敛为只包含 Task 5 表，定向测试与数据库单元测试已重新验证通过。
+已完成。工单、审批和审计模型与 Repository 已就位，`003_support_tables.py` 已收敛为只包含 Task 5 表，定向测试与数据库单元测试已重新验证通过。复审指出的状态机、审计 actor 租户约束和变体敏感字段问题已在后续修复中关闭。
 
 ## 改动文件
 
@@ -14,13 +14,14 @@
 - `tests/unit/database/test_support_repository.py`
 - `tests/unit/database/conftest.py`
 - `alembic/versions/003_support_tables.py`
+- 后续修复：工单/审批状态机调用、审计 actor 同租户复合外键、业务 actor 校验、嵌套/变体敏感字段脱敏及回归测试
 - `.superpowers/sdd/2026-08-01-领域模型与数据库实施计划/task-5-report.md`
 
 ## 测试命令与结果
 
 - 定向测试  
   `E:\anaconda3\envs\edu_agent\python.exe -m pytest tests/unit/database/test_support_models.py tests/unit/database/test_support_repository.py -q`  
-  结果：`13 passed`
+  结果：修复前 `13 passed`，修复后 `18 passed`
 
 - 数据库单元测试回归  
   `E:\anaconda3\envs\edu_agent\python.exe -m pytest tests/unit/database -q`  
@@ -46,6 +47,7 @@
   - `alembic upgrade 002`
   - `alembic upgrade head`
 - 当前迁移版本：`003 (head)`
+- 修复后的 `alembic check`：`No new upgrade operations detected.`
 
 ## 提交哈希
 

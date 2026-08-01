@@ -48,8 +48,16 @@ def test_audit_logs_allow_platform_level_events() -> None:
     assert AuditLog.__table__.c.tenant_id.nullable is True
 
 
+def test_audit_actor_uses_tenant_scoped_foreign_key(metadata) -> None:
+    constraint = find_constraint(
+        "audit_logs",
+        "fk_audit_logs_tenant_actor",
+        metadata,
+    )
+    assert constraint is not None
+
+
 def test_support_models_are_registered_on_shared_metadata() -> None:
     assert Base.metadata.tables["tickets"] is not None
     assert Base.metadata.tables["approval_requests"] is not None
     assert Base.metadata.tables["audit_logs"] is not None
-

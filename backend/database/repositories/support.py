@@ -14,9 +14,9 @@ from backend.database.base import TenantScope
 from backend.database.models.billing import Customer
 from backend.database.models.identity import User
 from backend.database.models.support import ApprovalAction, ApprovalRequest, AuditLog, Ticket, TicketEvent, TicketMessage
-from backend.domain.approval import ApprovalStatus
+from backend.domain.approval import ApprovalStatus, transition_approval
 from backend.domain.common import DomainError
-from backend.domain.ticket import TicketStatus
+from backend.domain.ticket import TicketStatus, transition_ticket
 
 SENSITIVE_FIELD_MARKER = "[REDACTED]"
 SENSITIVE_KEYS = {
@@ -31,7 +31,12 @@ SENSITIVE_KEYS = {
     "card_no",
     "prompt",
     "system_prompt",
+    "api_key",
+    "authorization",
+    "private_key",
+    "cookie",
 }
+SENSITIVE_KEY_FRAGMENTS = ("password", "secret", "token", "cardnumber", "bankcard", "systemprompt", "apikey")
 
 
 def _hash_payload(payload: dict[str, Any]) -> str:
@@ -40,8 +45,9 @@ def _hash_payload(payload: dict[str, Any]) -> str:
 
 
 def _sanitize_value(key: str, value: Any) -> Any:
-    normalized_key = key.lower()
-    if normalized_key in SENSITIVE_KEYS:
+    normalized_key = "".join(character for character in key.lower() if character.isalnum())
+    normalized_keys = {"".join(character for character in item.lower() if character.isalnum()) for item in SENSITIVE_KEYS}
+    if normalized_key in normalized_keys or any(fragment in normalized_key for fragment in SENSITIVE_KEY_FRAGMENTS):
         return SENSITIVE_FIELD_MARKER
     if isinstance(value, dict):
         return {nested_key: _sanitize_value(nested_key, nested_value) for nested_key, nested_value in value.items()}
@@ -87,6 +93,12 @@ class SupportRepository:
             return None
         statement = self._tenant_visible(select(User.id), User, scope=scope).where(User.id == user_id).limit(1)
         return await self.session.scalar(statement)
+
+    async def _get_required_user_id_in_tenant(self, *, scope: TenantScope, user_id: UUID | None) -> UUID | None:
+        stored_user_id = await self._get_user_id_in_tenant_or_none(scope=scope, user_id=user_id)
+        if user_id is not None and stored_user_id is None:
+            raise DomainError("actor not found in tenant scope")
+        return stored_user_id
 
     async def _get_approval_request_for_tenant(self, *, scope: TenantScope, approval_request_id: UUID) -> ApprovalRequest | None:
         statement = self._tenant_visible(select(ApprovalRequest), ApprovalRequest, scope=scope).where(ApprovalRequest.id == approval_request_id)
@@ -184,7 +196,7 @@ class SupportRepository:
             checkpoint_reference=str(payload.get("checkpoint_reference")) if payload.get("checkpoint_reference") else None,
         )
         approval.actions = []
-        ticket.status = TicketStatus.PENDING_APPROVAL
+        ticket.status = transition_ticket(ticket.status, TicketStatus.PENDING_APPROVAL)
         self.session.add(approval)
         self.session.add(
             TicketEvent(
@@ -225,7 +237,11 @@ class SupportRepository:
             reason=reason,
             changes_summary=sanitized_changes,
         )
-        approval_request.status = ApprovalStatus(action)
+        try:
+            target_status = ApprovalStatus(action)
+        except ValueError as exc:
+            raise DomainError(f"unsupported approval action: {action}") from exc
+        approval_request.status = transition_approval(approval_request.status, target_status)
         approval_request.actions.append(approval_action)
         self.session.add(approval_action)
         await self.session.flush()
@@ -244,11 +260,15 @@ class SupportRepository:
         if scope is None and resource_type != "platform":
             raise DomainError("business audit events require tenant scope")
 
+        stored_actor_id = actor_id
+        if scope is not None:
+            stored_actor_id = await self._get_required_user_id_in_tenant(scope=scope, user_id=actor_id)
+
         sanitized_metadata = _sanitize_payload(metadata)
         log = AuditLog(
             id=uuid4(),
             tenant_id=scope.tenant_id if scope is not None else None,
-            actor_id=actor_id,
+            actor_id=stored_actor_id,
             action=action,
             resource_type=resource_type,
             resource_id=resource_id,

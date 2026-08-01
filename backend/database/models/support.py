@@ -246,6 +246,14 @@ class ApprovalAction(Base, TenantAuditMixin):
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "actor_id"],
+            ["users.tenant_id", "users.id"],
+            name="fk_audit_logs_tenant_actor",
+            ondelete="RESTRICT",
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
     tenant_id: Mapped[UUID | None] = mapped_column(
