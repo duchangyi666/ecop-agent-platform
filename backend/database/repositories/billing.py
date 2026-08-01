@@ -9,19 +9,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database.base import TenantScope
 from backend.database.models.billing import Payment, Refund
+from backend.database.repositories.base import TenantScopedRepository
 from backend.domain.billing import RefundStatus
 from backend.domain.common import DomainError, ensure_money, ensure_utc
 
 
-class BillingRepository:
+class BillingRepository(TenantScopedRepository):
     DUPLICATE_CHARGE_WINDOW = timedelta(minutes=5)
 
     def __init__(self, session: AsyncSession) -> None:
-        self.session = session
-
-    @staticmethod
-    def _tenant_visible(statement: Select, model, *, scope: TenantScope) -> Select:
-        return statement.where(model.tenant_id == scope.tenant_id, model.deleted_at.is_(None))
+        super().__init__(session)
 
     async def get_payment_for_tenant(self, *, scope: TenantScope, payment_id: UUID) -> Payment | None:
         statement = self._tenant_visible(select(Payment), Payment, scope=scope).where(Payment.id == payment_id)

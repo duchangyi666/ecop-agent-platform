@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.database.base import TenantScope
 from backend.database.models.billing import Customer
 from backend.database.models.identity import User
+from backend.database.repositories.base import TenantScopedRepository
 from backend.database.models.support import ApprovalAction, ApprovalRequest, AuditLog, Ticket, TicketEvent, TicketMessage
 from backend.domain.approval import ApprovalStatus, transition_approval
 from backend.domain.common import DomainError
@@ -70,15 +71,11 @@ def _extract_amount(payload: dict[str, Any]) -> Decimal | None:
         raise DomainError("approval payload amount must be Decimal-compatible") from exc
 
 
-class SupportRepository:
+class SupportRepository(TenantScopedRepository):
     DEFAULT_APPROVAL_TTL = timedelta(hours=24)
 
     def __init__(self, session: AsyncSession) -> None:
-        self.session = session
-
-    @staticmethod
-    def _tenant_visible(statement: Select, model, *, scope: TenantScope) -> Select:
-        return statement.where(model.tenant_id == scope.tenant_id, model.deleted_at.is_(None))
+        super().__init__(session)
 
     async def _get_customer_for_tenant(self, *, scope: TenantScope, customer_id: UUID) -> Customer | None:
         statement = self._tenant_visible(select(Customer), Customer, scope=scope).where(Customer.id == customer_id)

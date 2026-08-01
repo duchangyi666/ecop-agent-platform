@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database.base import TenantScope
 from backend.database.models.governance import MemoryRecord, Policy, PolicyVersion, RuntimeSpan, RuntimeTrace
+from backend.database.repositories.base import TenantScopedRepository
 from backend.domain.common import DomainError
 
 SENSITIVE_MARKER = "[REDACTED]"
@@ -37,9 +38,9 @@ def _hash_payload(payload: dict[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-class GovernanceRepository:
+class GovernanceRepository(TenantScopedRepository):
     def __init__(self, session: AsyncSession) -> None:
-        self.session = session
+        super().__init__(session)
 
     async def get_published_policy(self, *, scope: TenantScope, policy_code: str, at: datetime) -> PolicyVersion | None:
         if at.tzinfo is None or at.utcoffset() is None:
