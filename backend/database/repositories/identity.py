@@ -25,10 +25,16 @@ class IdentityRepository:
         statement = (
             select(Role)
             .join(UserRole, UserRole.role_id == Role.id)
+            .join(User, User.id == UserRole.user_id)
             .where(UserRole.user_id == user_id)
         )
         statement = self._tenant_visible(statement, Role, scope=scope)
-        statement = statement.where(UserRole.tenant_id == scope.tenant_id, UserRole.deleted_at.is_(None))
+        statement = statement.where(
+            UserRole.tenant_id == scope.tenant_id,
+            UserRole.deleted_at.is_(None),
+            User.tenant_id == scope.tenant_id,
+            User.deleted_at.is_(None),
+        )
         result = await self.session.scalars(statement.order_by(Role.code))
         return list(result.all())
 
@@ -37,10 +43,13 @@ class IdentityRepository:
             select(Permission.id)
             .join(Role, Role.id == Permission.role_id)
             .join(UserRole, UserRole.role_id == Role.id)
+            .join(User, User.id == UserRole.user_id)
             .where(
                 UserRole.user_id == user_id,
                 UserRole.tenant_id == scope.tenant_id,
                 UserRole.deleted_at.is_(None),
+                User.tenant_id == scope.tenant_id,
+                User.deleted_at.is_(None),
                 Role.tenant_id == scope.tenant_id,
                 Role.deleted_at.is_(None),
                 Permission.tenant_id == scope.tenant_id,

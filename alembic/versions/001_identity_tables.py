@@ -42,6 +42,7 @@ def upgrade() -> None:
     sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
     sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], name=op.f('fk_roles_tenant_id_tenants'), ondelete='RESTRICT'),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_roles')),
+    sa.UniqueConstraint('tenant_id', 'id', name='uq_roles_tenant_id_id'),
     sa.UniqueConstraint('tenant_id', 'code', name='uq_roles_tenant_id_code')
     )
     op.create_index(op.f('ix_roles_tenant_id'), 'roles', ['tenant_id'], unique=False)
@@ -57,6 +58,7 @@ def upgrade() -> None:
     sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
     sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], name=op.f('fk_users_tenant_id_tenants'), ondelete='RESTRICT'),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_users')),
+    sa.UniqueConstraint('tenant_id', 'id', name='uq_users_tenant_id_id'),
     sa.UniqueConstraint('tenant_id', 'email', name='uq_users_tenant_id_email')
     )
     op.create_index(op.f('ix_users_tenant_id'), 'users', ['tenant_id'], unique=False)
@@ -70,10 +72,10 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
-    sa.ForeignKeyConstraint(['role_id'], ['roles.id'], name=op.f('fk_permissions_role_id_roles'), ondelete='RESTRICT'),
+    sa.ForeignKeyConstraint(['tenant_id', 'role_id'], ['roles.tenant_id', 'roles.id'], name='fk_permissions_tenant_role', ondelete='RESTRICT'),
     sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], name=op.f('fk_permissions_tenant_id_tenants'), ondelete='RESTRICT'),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_permissions')),
-    sa.UniqueConstraint('tenant_id', 'role_id', 'code', name='uq_permissions_tenant_id_role_id_code')
+    sa.UniqueConstraint('tenant_id', 'code', name='uq_permissions_tenant_id_code')
     )
     op.create_index(op.f('ix_permissions_role_id'), 'permissions', ['role_id'], unique=False)
     op.create_index(op.f('ix_permissions_tenant_id'), 'permissions', ['tenant_id'], unique=False)
@@ -85,9 +87,9 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
-    sa.ForeignKeyConstraint(['role_id'], ['roles.id'], name=op.f('fk_user_roles_role_id_roles'), ondelete='RESTRICT'),
+    sa.ForeignKeyConstraint(['tenant_id', 'role_id'], ['roles.tenant_id', 'roles.id'], name='fk_user_roles_tenant_role', ondelete='RESTRICT'),
     sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], name=op.f('fk_user_roles_tenant_id_tenants'), ondelete='RESTRICT'),
-    sa.ForeignKeyConstraint(['user_id'], ['users.id'], name=op.f('fk_user_roles_user_id_users'), ondelete='RESTRICT'),
+    sa.ForeignKeyConstraint(['tenant_id', 'user_id'], ['users.tenant_id', 'users.id'], name='fk_user_roles_tenant_user', ondelete='RESTRICT'),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_user_roles')),
     sa.UniqueConstraint('tenant_id', 'user_id', 'role_id', name='uq_user_roles_tenant_id_user_id_role_id')
     )

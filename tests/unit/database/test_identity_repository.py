@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from backend.database.base import TenantScope
 
@@ -111,3 +112,54 @@ async def test_has_permission_requires_same_tenant(repository, session, tenant_a
         user_id=user.id,
         permission_code="refund:approve",
     ) is False
+
+
+@pytest.mark.asyncio
+async def test_cross_tenant_user_role_assignment_is_rejected(session, tenant_a, tenant_b, user):
+    from backend.database.models.identity import Role, UserRole
+
+    role = Role(
+        id=uuid4(),
+        tenant_id=tenant_b.id,
+        code="tenant_b_role",
+        name="Tenant B Role",
+        status="active",
+        is_platform_role=False,
+    )
+    session.add(role)
+    await session.flush()
+    session.add(UserRole(id=uuid4(), tenant_id=tenant_a.id, user_id=user.id, role_id=role.id))
+
+    with pytest.raises(IntegrityError):
+        await session.flush()
+    await session.rollback()
+
+
+@pytest.mark.asyncio
+async def test_soft_deleted_user_cannot_list_roles_or_authorize(repository, session, tenant_a, user):
+    from backend.database.models.identity import Permission, Role, UserRole
+
+    role = Role(
+        id=uuid4(),
+        tenant_id=tenant_a.id,
+        code="deleted_user_role",
+        name="Deleted User Role",
+        status="active",
+        is_platform_role=False,
+    )
+    permission = Permission(
+        id=uuid4(),
+        tenant_id=tenant_a.id,
+        role_id=role.id,
+        code="ticket:read",
+        name="Read ticket",
+        status="active",
+    )
+    session.add_all([role, permission, UserRole(id=uuid4(), tenant_id=tenant_a.id, user_id=user.id, role_id=role.id)])
+    await session.commit()
+    user.deleted_at = datetime.now(timezone.utc)
+    await session.commit()
+
+    scope = TenantScope(tenant_id=tenant_a.id)
+    assert await repository.list_user_roles(scope=scope, user_id=user.id) == []
+    assert await repository.has_permission(scope=scope, user_id=user.id, permission_code="ticket:read") is False
