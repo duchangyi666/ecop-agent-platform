@@ -47,7 +47,12 @@ class SpecialistResult(BaseModel):
     specialist: str
     route: str
     content: str
+    status: str = "completed"
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @property
+    def agent_name(self) -> str:
+        return self.specialist
 
 
 class ToolContract(BaseModel):

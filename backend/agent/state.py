@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from backend.agent.contracts import SupervisorDecision
+from backend.agent.contracts import SpecialistResult, SupervisorDecision
 from backend.database.base import TenantScope
 
 
@@ -27,6 +27,7 @@ class AgentState(BaseModel):
     customer_id: UUID | None = None
     next_action: str = "finish"
     supervisor_decision: SupervisorDecision | None = None
+    specialist_result: SpecialistResult | None = None
     errors: list[dict[str, Any]] = Field(default_factory=list)
     trace_id: UUID | None = None
     audit_event_ids: list[UUID] = Field(default_factory=list)
