@@ -1,0 +1,52 @@
+from __future__ import annotations
+
+from uuid import UUID
+
+from sqlalchemy import Select, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from backend.database.base import TenantScope
+from backend.database.models.identity import Permission, Role, User, UserRole
+
+
+class IdentityRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    @staticmethod
+    def _tenant_visible(statement: Select, model, *, scope: TenantScope) -> Select:
+        return statement.where(model.tenant_id == scope.tenant_id, model.deleted_at.is_(None))
+
+    async def get_user_in_tenant(self, *, scope: TenantScope, user_id: UUID) -> User | None:
+        statement = self._tenant_visible(select(User), User, scope=scope).where(User.id == user_id)
+        return await self.session.scalar(statement)
+
+    async def list_user_roles(self, *, scope: TenantScope, user_id: UUID) -> list[Role]:
+        statement = (
+            select(Role)
+            .join(UserRole, UserRole.role_id == Role.id)
+            .where(UserRole.user_id == user_id)
+        )
+        statement = self._tenant_visible(statement, Role, scope=scope)
+        statement = statement.where(UserRole.tenant_id == scope.tenant_id, UserRole.deleted_at.is_(None))
+        result = await self.session.scalars(statement.order_by(Role.code))
+        return list(result.all())
+
+    async def has_permission(self, *, scope: TenantScope, user_id: UUID, permission_code: str) -> bool:
+        statement = (
+            select(Permission.id)
+            .join(Role, Role.id == Permission.role_id)
+            .join(UserRole, UserRole.role_id == Role.id)
+            .where(
+                UserRole.user_id == user_id,
+                UserRole.tenant_id == scope.tenant_id,
+                UserRole.deleted_at.is_(None),
+                Role.tenant_id == scope.tenant_id,
+                Role.deleted_at.is_(None),
+                Permission.tenant_id == scope.tenant_id,
+                Permission.deleted_at.is_(None),
+                Permission.code == permission_code,
+            )
+            .limit(1)
+        )
+        return await self.session.scalar(statement) is not None
