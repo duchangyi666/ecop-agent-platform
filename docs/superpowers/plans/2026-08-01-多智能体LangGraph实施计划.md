@@ -142,7 +142,7 @@ git commit -m "feat: add langgraph supervisor routing"
 - `AgentRegistry.register(name, graph, allowed_tools)`。
 - `AgentRegistry.get(name)`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 def test_registry_exposes_five_specialist_agents():
@@ -156,23 +156,23 @@ def test_billing_agent_returns_structured_specialist_result():
     assert result["specialist_result"].status == "needs_policy_gate"
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `python -m pytest tests/unit/agent/test_specialist_agents.py -q`
 
 Expected: FAIL because specialist subgraphs and registry do not exist。
 
-- [ ] **Step 3: 实现五个专业子图**
+- [x] **Step 3: 实现五个专业子图**
 
 每个 Agent 子图使用 LangGraph `StateGraph`；子图只返回 `SpecialistResult`，不直接写数据库。计费 Agent 只产出账单上下文和退款预览请求，工单和审批 Agent 只产出结构化业务意图。
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `python -m pytest tests/unit/agent/test_specialist_agents.py -q`
 
 Expected: PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add backend/agent/agents backend/agent/registry.py tests/unit/agent/test_specialist_agents.py
