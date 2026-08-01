@@ -12,6 +12,8 @@ def supervisor_node(state: AgentState) -> dict[str, object]:
         route = "route_knowledge"
     elif any(keyword in message for keyword in ("工单", "投诉", "故障")):
         route = "route_ticket"
+    elif any(keyword in message for keyword in ("审批", "审核", "approval")):
+        route = "route_approval"
     else:
         route = "route_customer"
 

@@ -4,14 +4,14 @@
 
 **Goal:** 在现有独立企业客户运营平台上实现 LangGraph Supervisor + 专业 Agent 子图的多智能体工作流，并完成退款/计费异常的真实业务闭环。
 
-**Architecture:** 使用 LangGraph 1.0.9 的 `StateGraph` 编排主图和专业子图。Supervisor 只负责结构化路由，专业 Agent 只负责领域推理，确定性策略和注册工具负责权限、金额、状态、租户和副作用控制。
+**Architecture:** 使用本机实际安装的 LangGraph 1.1.10 的 `StateGraph` 编排主图和专业子图。Supervisor 只负责结构化路由，专业 Agent 只负责领域推理，确定性策略和注册工具负责权限、金额、状态、租户和副作用控制。
 
-**Tech Stack:** Python 3.11.15、LangGraph 1.0.9、LangChain Core 1.2.16、LangGraph Checkpoint 2.1.2、SQLAlchemy 2.0.36、Pydantic 2.11.4、PostgreSQL 15、pytest 8.3.4。
+**Tech Stack:** Python 3.11.15、LangGraph 1.1.10、LangChain Core 1.3.3、LangGraph Checkpoint 4.0.3、SQLAlchemy 2.0.49、Pydantic 2.12.5、PostgreSQL 15、pytest 8.3.4。
 
 ## Global Constraints
 
 - 使用隔离环境 `E:\anaconda3\envs\edu_agent\python.exe`，设置 `PYTHONNOUSERSITE=1`。
-- LangGraph 以当前实际安装版本 `1.0.9` 为准，不降级依赖。
+- LangGraph 以当前实际安装版本 `1.1.10` 为准，不降级依赖。
 - 业务数据继续使用现有 Repository、`TenantScope` 和 `UnitOfWork`，Agent 不直接操作数据库。
 - 所有自定义文档使用中文文件名；标准 `README.md`、`pyproject.toml` 和 Python 文件名保持生态约定。
 - 所有测试先写失败测试并确认失败，再实现最小代码。
@@ -60,7 +60,7 @@ Expected: FAIL because the agent package and contracts do not exist。
 
 - [x] **Step 3: 加入实际 LangGraph 依赖并实现契约**
 
-在 `pyproject.toml` 增加 `langgraph==1.0.9`；在 `state.py` 中定义 `AgentState` 和 `create_agent_state(...)` 工厂，在 `contracts.py` 中定义 `SupervisorDecision`、`SpecialistResult`、`AgentMessage` 和 `ToolContract`。测试辅助函数 `scope`、`request_id` 和 `state_for_*` 统一放在 `tests/unit/agent/helpers.py`。路由只允许 `route_customer`、`route_knowledge`、`route_billing`、`route_ticket`、`route_approval`、`ask_clarification`、`human_handoff`、`finish`。
+在 `pyproject.toml` 增加 `langgraph==1.1.10`；在 `state.py` 中定义 `AgentState` 和 `create_agent_state(...)` 工厂，在 `contracts.py` 中定义 `SupervisorDecision`、`SpecialistResult`、`AgentMessage` 和 `ToolContract`。测试辅助函数 `scope`、`request_id` 和 `state_for_*` 统一放在 `tests/unit/agent/helpers.py`。路由只允许 `route_customer`、`route_knowledge`、`route_billing`、`route_ticket`、`route_approval`、`ask_clarification`、`human_handoff`、`finish`。
 
 - [x] **Step 4: 运行测试确认通过**
 
@@ -291,7 +291,7 @@ git commit -m "feat: add agent checkpoint and approval resume"
 - `class FallbackPolicy`：模型失败、工具未知状态和人工接管策略。
 - `async def run_refund_workflow(...)`：完整端到端入口。
 
-- [ ] **Step 1: 写失败验收测试**
+- [x] **Step 1: 写失败验收测试**
 
 ```python
 async def test_multi_agent_refund_workflow_reaches_audited_result(database_url):
@@ -301,17 +301,17 @@ async def test_multi_agent_refund_workflow_reaches_audited_result(database_url):
     assert result.audit_event_ids
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `python -m pytest tests/integration/agent/test_multi_agent_workflow.py -q`
 
 Expected: FAIL because the complete multi-agent entry point and fallback policy do not exist。
 
-- [ ] **Step 3: 实现错误降级、端到端入口和中文文档**
+- [x] **Step 3: 实现错误降级、端到端入口和中文文档**
 
 模型格式错误、超时和工具未知状态必须进入受控错误分支；README 增加 LangGraph 实际版本、工作流启动、测试和数据库验证说明；中文架构文档记录主图、子图、State、工具白名单、Checkpoint 和事务边界。
 
-- [ ] **Step 4: 执行 Phase 3 验收**
+- [x] **Step 4: 执行 Phase 3 验收**
 
 ```powershell
 $env:PYTHONNOUSERSITE = "1"
@@ -323,7 +323,7 @@ python -m alembic check
 
 Expected: 全部通过；LangGraph 多 Agent 退款闭环覆盖 Supervisor 路由、专业 Agent、工具白名单、审批恢复、跨租户、幂等、审计和降级。
 
-- [ ] **Step 5: 提交 Phase 3 成果**
+- [x] **Step 5: 提交 Phase 3 成果**
 
 ```bash
 git add .

@@ -1,0 +1,79 @@
+# 多智能体 LangGraph 工作流
+
+## 1. 定位
+
+本项目是独立的新项目，不复用现有 EduAgent、EduRAG 或其他项目的业务模块。当前工作流采用一个 Supervisor 加五个专属 Agent 的多智能体结构：客服、知识、计费、工单和审批。
+
+## 2. 主图与专属子图
+
+```mermaid
+flowchart TD
+    A[normalize_request] --> B[supervisor_agent]
+    B --> C[customer_service_agent]
+    B --> D[knowledge_agent]
+    B --> E[billing_agent]
+    B --> F[ticket_agent]
+    B --> G[approval_agent]
+    E --> H[policy_gate]
+    C --> Z[结束]
+    D --> Z
+    F --> Z
+    G --> Z
+    H --> Z
+```
+
+Supervisor 只负责结构化路由，不直接执行退款、建单或审批操作。每个专属 Agent 都是独立的 LangGraph 子图，后续可以在子图内部增加模型调用、工具调用、重试和人工介入节点。
+
+## 3. 共享 State
+
+`AgentState` 是主图和子图共享的边界，包含：
+
+- `request_id`、`tenant_scope`：请求身份和租户隔离范围；
+- `conversation`、`customer_id`：对话上下文和客户标识；
+- `supervisor_decision`、`next_action`：路由决策；
+- `specialist_result`：专属 Agent 的结构化结果；
+- `errors`、`trace_id`、`audit_event_ids`：错误、链路和审计关联信息。
+
+状态只在图内传递。数据库读写必须通过租户作用域 Repository 和 Unit of Work 完成，Agent 不应直接拼接 SQL 或跨租户查询。
+
+## 4. 路由和工具白名单
+
+当前 Supervisor 支持以下路由：`route_customer`、`route_knowledge`、`route_billing`、`route_ticket`、`route_approval`、`ask_clarification`、`human_handoff` 和 `finish`。
+
+工具按 Agent 白名单注册：
+
+| Agent | 允许工具 |
+| --- | --- |
+| customer_service | 无 |
+| knowledge | `knowledge.search` |
+| billing | `billing.preview`、`billing.execute` |
+| ticket | `ticket.create`、`ticket.update` |
+| approval | `approval.request`、`approval.status` |
+
+计费工具先预览，再执行。退款执行必须携带租户作用域、退款幂等键和审批结果；未知的第三方执行状态必须进入对账或人工处理，不能自动重试造成重复退款。
+
+## 5. 审批、Checkpoint 和降级
+
+高风险退款经过 `policy_gate` 后进入 `human_handoff`，运行时保存 `thread_id`、原始退款幂等键、State、状态和审计关联信息。审批恢复时复用原幂等键，不重新生成业务幂等键。
+
+`WorkflowError` 将异常转换为结构化错误；模型超时和连接异常在最多三次尝试内允许重试，未知工具状态和超过重试次数统一转人工处理。错误摘要只保存截断后的可审计信息，不保存完整敏感请求。
+
+## 6. 当前实际版本
+
+版本以本机 `E:\anaconda3\envs\edu_agent` 环境实际安装结果为准，当前验收记录为：
+
+- Python 3.11.15
+- LangGraph 1.1.10
+- langchain-core 1.3.3
+- langgraph-checkpoint 4.0.3
+- langgraph-prebuilt 1.0.13
+- SQLAlchemy 2.0.49
+- asyncpg 0.30.0
+- Pydantic 2.12.5
+- Alembic 1.18.5
+
+依赖声明和运行文档不使用未经本机验证的版本号。重新安装或升级环境后，应重新执行版本核验和 `pip check`。
+
+## 7. 当前边界
+
+当前实现已经完成多 Agent 图结构、专属子图、工具白名单、退款策略、Checkpoint、审批恢复和统一运行时入口；`run_refund_workflow` 的 `database_url` 已作为应用边界保留，真实生产执行仍应接入数据库 Unit of Work、外部支付适配器和持久化审计仓储。

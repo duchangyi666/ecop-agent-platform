@@ -23,9 +23,10 @@ def test_pyproject_declares_authoritative_database_dependencies() -> None:
 
     dependencies = set(data["project"]["dependencies"])
 
-    assert "SQLAlchemy==2.0.36" in dependencies
+    assert "SQLAlchemy==2.0.49" in dependencies
     assert "asyncpg==0.30.0" in dependencies
-    assert "pydantic==2.11.4" in dependencies
+    assert "pydantic==2.12.5" in dependencies
     assert "pytest==8.3.4" in dependencies
     assert "pytest-asyncio==0.24.0" in dependencies
     assert "alembic==1.18.5" in dependencies
+    assert "langgraph==1.1.10" in dependencies

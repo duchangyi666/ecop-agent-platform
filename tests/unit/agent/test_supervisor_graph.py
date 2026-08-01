@@ -35,3 +35,18 @@ def test_supervisor_routes_refund_request_to_billing_agent() -> None:
 def test_supervisor_cannot_route_to_unregistered_agent() -> None:
     with pytest.raises(ValueError, match="unsupported route"):
         route_from_supervisor(state_with_route("route_unknown"))
+
+
+def test_main_graph_executes_each_specialist_route() -> None:
+    graph = build_main_graph().compile()
+
+    cases = {
+        "客户咨询": "customer_service",
+        "知识库政策怎么查": "knowledge",
+        "我要提交工单": "ticket",
+        "查看审批状态": "approval",
+    }
+
+    for message, specialist in cases.items():
+        result = graph.invoke(new_state(message))
+        assert result["specialist_result"].agent_name == specialist
