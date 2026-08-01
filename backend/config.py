@@ -10,7 +10,7 @@ class DatabaseSettings(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     database_url: str = Field(
-        default="postgresql+asyncpg://app:app@localhost:5432/enterprise_customer_operations",
+        default="postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations",
     )
 
 

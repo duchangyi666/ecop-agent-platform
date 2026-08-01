@@ -6,9 +6,11 @@ from uuid import UUID, uuid4
 
 import pytest_asyncio
 from sqlalchemy import delete
+from sqlalchemy import inspect
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.database.base import TenantScope
+from backend.database.base import Base
 from backend.database.models.billing import Customer, Invoice, Payment, Refund
 from backend.database.models.identity import Tenant, User
 from backend.domain.billing import PaymentStatus
@@ -17,10 +19,23 @@ TEST_DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 
 
 @pytest_asyncio.fixture
-async def session_factory() -> async_sessionmaker[AsyncSession]:
+async def database_url() -> str:
     import backend.database.models  # noqa: F401
 
     engine = create_async_engine(TEST_DATABASE_URL, pool_pre_ping=True)
+    async with engine.begin() as connection:
+        tables = await connection.run_sync(lambda sync_connection: inspect(sync_connection).get_table_names())
+        if "tenants" not in tables:
+            await connection.run_sync(Base.metadata.create_all)
+    await engine.dispose()
+    return TEST_DATABASE_URL
+
+
+@pytest_asyncio.fixture
+async def session_factory(database_url: str) -> async_sessionmaker[AsyncSession]:
+    import backend.database.models  # noqa: F401
+
+    engine = create_async_engine(database_url, pool_pre_ping=True)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         yield factory
