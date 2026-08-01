@@ -244,7 +244,7 @@ git commit -m "feat: add multi-agent billing tool policy flow"
 - `run_agent_workflow(request, checkpointer, registry)`。
 - `persist_agent_runtime(state, node_name, result)`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 async def test_approval_interrupt_can_resume_with_same_idempotency_key(checkpoint_store):
@@ -254,23 +254,23 @@ async def test_approval_interrupt_can_resume_with_same_idempotency_key(checkpoin
     assert resumed.refund_idempotency_key == paused.refund_idempotency_key
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `python -m pytest tests/unit/agent/test_checkpoint_runtime.py -q`
 
 Expected: FAIL because CheckpointStore and resume flow do not exist。
 
-- [ ] **Step 3: 实现 Checkpoint 与运行追踪**
+- [x] **Step 3: 实现 Checkpoint 与运行追踪**
 
 先实现内存 CheckpointStore 供单元测试，再实现 PostgreSQL 持久化适配；使用现有 `RuntimeTrace`、`RuntimeSpan`、`ToolExecution` 和 `AuditLog` Repository/模型保存脱敏摘要。
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `python -m pytest tests/unit/agent/test_checkpoint_runtime.py tests/integration/agent/test_approval_resume.py -q`
 
 Expected: PASS；审批恢复重新读取数据库状态并复用原幂等键。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add backend/agent/checkpoint.py backend/agent/runtime.py backend/agent/graphs tests/unit/agent tests/integration/agent
