@@ -37,7 +37,7 @@
 - `SpecialistResult`：专业 Agent 输出。
 - `ToolContract`：专业 Agent 可调用工具协议。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 def test_supervisor_decision_rejects_unregistered_route():
@@ -52,23 +52,23 @@ def test_agent_state_carries_tenant_scope_and_request_id():
     assert state.conversation[0].content == "refund"
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `python -m pytest tests/unit/agent/test_contracts.py -q`
 
 Expected: FAIL because the agent package and contracts do not exist。
 
-- [ ] **Step 3: 加入实际 LangGraph 依赖并实现契约**
+- [x] **Step 3: 加入实际 LangGraph 依赖并实现契约**
 
 在 `pyproject.toml` 增加 `langgraph==1.0.9`；在 `state.py` 中定义 `AgentState` 和 `create_agent_state(...)` 工厂，在 `contracts.py` 中定义 `SupervisorDecision`、`SpecialistResult`、`AgentMessage` 和 `ToolContract`。测试辅助函数 `scope`、`request_id` 和 `state_for_*` 统一放在 `tests/unit/agent/helpers.py`。路由只允许 `route_customer`、`route_knowledge`、`route_billing`、`route_ticket`、`route_approval`、`ask_clarification`、`human_handoff`、`finish`。
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `python -m pytest tests/unit/agent/test_contracts.py -q`
 
 Expected: PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add pyproject.toml backend/agent tests/unit/agent
