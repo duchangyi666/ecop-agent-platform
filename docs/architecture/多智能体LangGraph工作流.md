@@ -50,11 +50,11 @@ Supervisor 只负责结构化路由，不直接执行退款、建单或审批操
 | ticket | `ticket.create`、`ticket.update` |
 | approval | `approval.request`、`approval.status` |
 
-计费工具先预览，再执行。退款执行必须携带租户作用域、退款幂等键和审批结果；未知的第三方执行状态必须进入对账或人工处理，不能自动重试造成重复退款。
+计费工具先预览，再申请退款。退款申请必须携带租户作用域和退款幂等键；高风险申请先落库为 `Refund(REQUESTED)` 与 `ApprovalRequest(PENDING)`，再进入人工审批。未知的第三方执行状态必须进入对账或人工处理，不能自动重试造成重复退款。
 
 ## 5. 审批、Checkpoint 和降级
 
-高风险退款经过 `policy_gate` 后进入 `human_handoff`，运行时保存 `thread_id`、原始退款幂等键、State、状态和审计关联信息。审批恢复时复用原幂等键，不重新生成业务幂等键。
+高风险退款经过 `policy_gate` 后进入 `human_handoff`，运行时保存 `thread_id`、原始退款幂等键、State、状态和审计关联信息。审批恢复时按租户读取 `ApprovalRequest` 和数据库 Checkpoint，只允许 `PENDING` 审批转为 `APPROVED` 或 `REJECTED`，并复用原幂等键，不重新生成业务幂等键。批准或拒绝都会写入 `ApprovalAction`、`AuditLog` 和新的 Checkpoint 状态。
 
 `WorkflowError` 将异常转换为结构化错误；模型超时和连接异常在最多三次尝试内允许重试，未知工具状态和超过重试次数统一转人工处理。错误摘要只保存截断后的可审计信息，不保存完整敏感请求。
 
@@ -63,17 +63,17 @@ Supervisor 只负责结构化路由，不直接执行退款、建单或审批操
 版本以本机 `E:\anaconda3\envs\edu_agent` 环境实际安装结果为准，当前验收记录为：
 
 - Python 3.11.15
-- LangGraph 1.1.10
-- langchain-core 1.3.3
-- langgraph-checkpoint 4.0.3
-- langgraph-prebuilt 1.0.13
-- SQLAlchemy 2.0.49
+- LangGraph 1.0.9
+- langchain-core 1.2.16
+- langgraph-checkpoint 2.1.2
+- langgraph-prebuilt 1.0.8
+- SQLAlchemy 2.0.36
 - asyncpg 0.30.0
-- Pydantic 2.12.5
+- Pydantic 2.11.4
 - Alembic 1.18.5
 
 依赖声明和运行文档不使用未经本机验证的版本号。重新安装或升级环境后，应重新执行版本核验和 `pip check`。
 
 ## 7. 当前边界
 
-当前实现已经完成多 Agent 图结构、专属子图、工具白名单、退款策略、Checkpoint、审批恢复和统一运行时入口；`run_refund_workflow` 的 `database_url` 已作为应用边界保留，真实生产执行仍应接入数据库 Unit of Work、外部支付适配器和持久化审计仓储。
+当前实现已经完成多 Agent 图结构、专属子图、工具白名单、退款策略、数据库退款申请、Checkpoint、审批恢复和统一运行时入口。当前 `run_refund_workflow` 已通过数据库 Unit of Work 写入本地业务状态；外部支付适配器仍未接入，因此“退款申请已持久化”不等于“第三方退款已完成”。
