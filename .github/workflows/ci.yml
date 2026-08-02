@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install project
+        run: |
+          python -m pip install --upgrade pip
+          pip install .
+
+      - name: Start dependencies
+        run: |
+          docker compose up -d postgres redis etcd minio milvus
+          sleep 30
+
+      - name: Verify database
+        run: |
+          python -m alembic upgrade head
+          python scripts/verify_database.py
+        env:
+          DATABASE_URL: postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations
+          MILVUS_URI: http://localhost:19541
+
+      - name: Run tests
+        run: python -m pytest tests/unit tests/integration/database tests/integration/agent tests/integration/api tests/integration/vectorstore tests/integration/external_services -q
+        env:
+          DATABASE_URL: postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations
+          MILVUS_URI: http://localhost:19541
+          PYTHONNOUSERSITE: "1"
+
+      - name: Check migrations
+        run: python -m alembic check
+        env:
+          DATABASE_URL: postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations
+
+      - name: Check dependencies
+        run: python -m pip check

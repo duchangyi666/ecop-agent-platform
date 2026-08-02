@@ -1,0 +1,133 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: ecop-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: enterprise_customer_operations
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      TZ: UTC
+    ports:
+      - "54329:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d enterprise_customer_operations"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    volumes:
+      - ecop_postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: ecop-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "16379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ecop_redis_data:/data
+
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.14
+    container_name: ecop-etcd
+    restart: unless-stopped
+    command:
+      - etcd
+      - -advertise-client-urls=http://127.0.0.1:2379
+      - -listen-client-urls=http://0.0.0.0:2379
+      - --data-dir=/etcd
+    ports:
+      - "12379:2379"
+    volumes:
+      - ecop_etcd_data:/etcd
+
+  minio:
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    container_name: ecop-minio
+    restart: unless-stopped
+    command: ["minio", "server", "/minio_data"]
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "19000:9000"
+      - "19001:9001"
+    volumes:
+      - ecop_minio_data:/minio_data
+
+  milvus:
+    image: milvusdb/milvus:v2.4.4
+    container_name: ecop-milvus
+    restart: unless-stopped
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+    ports:
+      - "19541:19530"
+    depends_on:
+      - etcd
+      - minio
+
+  backend-api:
+    build:
+      context: .
+      dockerfile: infra/docker/backend.Dockerfile
+    container_name: ecop-backend-api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://app:app@postgres:5432/enterprise_customer_operations
+      MILVUS_URI: http://milvus:19530
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:-local-development-change-me}
+      JWT_TOKEN_EXPIRES_MINUTES: ${JWT_TOKEN_EXPIRES_MINUTES:-60}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-v4-flash}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      milvus:
+        condition: service_started
+
+  mock-services:
+    build:
+      context: .
+      dockerfile: infra/docker/backend.Dockerfile
+    container_name: ecop-mock-services
+    restart: unless-stopped
+    command: ["python", "-m", "uvicorn", "mock_services.app:mock_services_app", "--host", "0.0.0.0", "--port", "8001"]
+    ports:
+      - "8001:8001"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: infra/docker/frontend.Dockerfile
+    container_name: ecop-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend-api
+
+volumes:
+  ecop_postgres_data:
+    name: ecop_postgres_data
+  ecop_redis_data:
+    name: ecop_redis_data
+  ecop_etcd_data:
+    name: ecop_etcd_data
+  ecop_minio_data:
+    name: ecop_minio_data

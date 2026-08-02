@@ -41,6 +41,34 @@ $env:PYTHONNOUSERSITE = "1"
 $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations"
 ```
 
+## Docker Compose 与部署
+
+项目根目录 `docker-compose.yml` 提供完整本地部署：
+
+```powershell
+Copy-Item .env.example .env
+docker compose up -d --build
+```
+
+启动后：
+
+- 前端控制台：`http://localhost:3000/`
+- 后端 API：`http://localhost:8000/`
+- Mock 外部服务：`http://localhost:8001/`
+- PostgreSQL：`localhost:54329`
+- Redis：`localhost:16379`
+- Milvus：`localhost:19541`
+
+首次启动需要执行数据库迁移：
+
+```powershell
+$env:PYTHONNOUSERSITE = "1"
+$env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations"
+& E:\anaconda3\envs\edu_agent\python.exe -m alembic upgrade head
+```
+
+GitHub Actions 流水线见 `.github/workflows/ci.yml`，会启动 PostgreSQL/Redis/Milvus/etcd/MinIO，执行迁移、完整测试和迁移漂移检查。
+
 ## HTTP API（开发环境）
 
 启动独立 FastAPI 应用：
