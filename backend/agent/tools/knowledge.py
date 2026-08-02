@@ -26,6 +26,7 @@ class KnowledgeDocumentResult(BaseModel):
     status: str
     visibility: str
     content_snippet: str | None = None
+    score: float | None = None
 
 
 class KnowledgeTool:

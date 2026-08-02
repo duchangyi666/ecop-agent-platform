@@ -78,7 +78,7 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 
 ## RAG 向量知识库
 
-项目新增可降级的 RAG 基础层：`POST /api/v1/knowledge/documents` 会把知识内容分片后写入 PostgreSQL `knowledge_chunks`，并同步到 Milvus 向量集合；`GET /api/v1/knowledge/search` 在配置 `MILVUS_URI` 时优先使用租户过滤的向量召回，未配置或向量结果为空时回退到 PostgreSQL 标题检索。
+项目新增可降级的 RAG 基础层：`POST /api/v1/knowledge/documents` 会把知识内容分片后写入 PostgreSQL `knowledge_chunks`，并同步到 Milvus 向量集合；`GET /api/v1/knowledge/search` 在配置 `MILVUS_URI` 时使用 Milvus 向量召回与 PostgreSQL 关键词检索的 RRF 混合结果，未配置时只使用 PostgreSQL 标题检索。
 
 客户咨询 API 已接入同一检索链路：模型生成前先按当前租户检索知识证据，证据摘要进入模型 Prompt，响应中的 `knowledge_evidence_count` 只报告命中数量，不返回知识原文。
 
@@ -101,7 +101,7 @@ $env:MILVUS_URI = "http://localhost:19531"
 $env:BGE_M3_MODEL_PATH = "D:\models\BAAI\bge-m3"
 ```
 
-本阶段不保存原始知识正文到审计、日志或运行轨迹；搜索响应只返回文档摘要和最多 300 字的分片摘要。尚未接入 BGE-M3 默认加载、混合检索、Reranker、SSE、正式身份认证或第三方支付。
+本阶段不保存原始知识正文到审计、日志或运行轨迹；搜索响应只返回文档摘要、RRF 得分和最多 300 字的分片摘要。尚未接入 BGE-M3 默认加载、Reranker、SSE、正式身份认证或第三方支付。
 
 Guard 终止结果会写入同一租户的 `AuditLog`、`RuntimeTrace` 和 `WorkflowCheckpoint`。检查点和对外响应不保存或回显敏感原文。Guard 使用当前仓库已安装的确定性 Python/Pydantic 规则，不代表已经接入 LLM 安全分类器、Redis、第三方支付或正式 JWT/OAuth。
 

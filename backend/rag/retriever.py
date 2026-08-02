@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from backend.agent.state import KnowledgeEvidence
 from backend.database.base import TenantScope
 from backend.database.repositories.knowledge import KnowledgeRepository
+from backend.rag.hybrid import merge_evidence
 from backend.rag.vector_store import KnowledgeVectorStore
 
 
@@ -72,7 +73,12 @@ class ConsultationKnowledgeRetriever:
                     score=hit.score,
                 )
             )
-        return evidence
+        postgres_evidence = await self._retrieve_from_postgres(
+            scope=scope,
+            query=query,
+            limit=limit,
+        )
+        return merge_evidence(evidence, postgres_evidence, limit=limit)
 
     async def _retrieve_from_postgres(
         self,

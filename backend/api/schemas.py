@@ -127,6 +127,7 @@ class KnowledgeDocumentResponse(BaseModel):
     status: str
     visibility: str
     content_snippet: str | None = None
+    score: float | None = None
 
 
 class KnowledgeIngestResponse(BaseModel):
@@ -180,6 +181,7 @@ class KnowledgeSearchResponse(BaseModel):
                     status=item.status,
                     visibility=item.visibility,
                     content_snippet=item.content_snippet,
+                    score=item.score,
                 )
                 for item in result.results
             ],

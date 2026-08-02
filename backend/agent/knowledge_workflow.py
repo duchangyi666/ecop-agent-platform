@@ -17,6 +17,7 @@ from backend.agent.tools.knowledge import (
     KnowledgeTool,
 )
 from backend.database.unit_of_work import UnitOfWork
+from backend.rag.hybrid import merge_document_results
 from backend.rag.vector_store import KnowledgeVectorStore
 
 
@@ -126,12 +127,13 @@ class KnowledgeWorkflowService:
                 )
                 documents_by_id = {document.id: document for document in documents}
                 seen_document_ids: set[UUID] = set()
+                vector_results: list[KnowledgeDocumentResult] = []
                 for hit in vector_hits:
                     document = documents_by_id.get(hit.document_id)
                     if document is None or hit.document_id in seen_document_ids:
                         continue
                     seen_document_ids.add(hit.document_id)
-                    results.append(
+                    vector_results.append(
                         KnowledgeDocumentResult(
                             document_id=document.id,
                             title=document.title,
@@ -140,9 +142,22 @@ class KnowledgeWorkflowService:
                             status=document.status,
                             visibility=document.visibility,
                             content_snippet=hit.content_snippet,
+                            score=hit.score,
                         )
                     )
-            if not results:
+                postgres_results = await tool.search(
+                    KnowledgeSearchRequest(
+                        scope=scope,
+                        query=request.query,
+                        limit=request.limit,
+                    )
+                )
+                results = merge_document_results(
+                    vector_results,
+                    postgres_results,
+                    limit=request.limit,
+                )
+            else:
                 results = await tool.search(
                     KnowledgeSearchRequest(
                         scope=scope,

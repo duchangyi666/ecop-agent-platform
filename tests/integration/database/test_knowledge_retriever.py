@@ -85,6 +85,12 @@ async def test_consultation_retriever_uses_vector_snippet_and_tenant_metadata(
         external_document_id="sla-policy",
         title="服务等级政策",
     )
+    await _add_document(
+        session_factory,
+        tenant_a.id,
+        external_document_id="sla-policy-supplement",
+        title="服务等级政策补充说明",
+    )
     vector_store = FakeVectorStore(
         [
             KnowledgeVectorHit(
@@ -106,7 +112,7 @@ async def test_consultation_retriever_uses_vector_snippet_and_tenant_metadata(
         limit=5,
     )
 
-    assert len(evidence) == 1
+    assert len(evidence) == 2
     assert evidence[0].document_id == document.id
     assert evidence[0].content_snippet == "企业版服务等级目标为百分之九十九点九可用性。"
-    assert evidence[0].score == 0.9
+    assert evidence[0].score is not None
