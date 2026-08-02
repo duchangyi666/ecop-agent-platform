@@ -17,6 +17,7 @@ from backend.agent.tools.knowledge import (
     KnowledgeTool,
 )
 from backend.database.unit_of_work import UnitOfWork
+from backend.rag.vector_store import KnowledgeVectorStore
 
 
 class KnowledgeWorkflowRequest(BaseModel):
@@ -46,8 +47,13 @@ def _decision_value(decision: Any, field_name: str) -> Any:
 
 
 class KnowledgeWorkflowService:
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        vector_store: KnowledgeVectorStore | None = None,
+    ) -> None:
         self.session_factory = session_factory
+        self.vector_store = vector_store
 
     async def run(self, request: KnowledgeWorkflowRequest) -> KnowledgeWorkflowResult:
         scope = request.state.tenant_scope
@@ -107,13 +113,43 @@ class KnowledgeWorkflowService:
                 )
 
             tool = KnowledgeTool(uow)
-            results = await tool.search(
-                KnowledgeSearchRequest(
-                    scope=scope,
+            results: list[KnowledgeDocumentResult] = []
+            if self.vector_store is not None:
+                vector_hits = await self.vector_store.search(
+                    tenant_id=scope.tenant_id,
                     query=request.query,
                     limit=request.limit,
                 )
-            )
+                documents = await uow.knowledge.get_documents_by_ids(
+                    scope=scope,
+                    document_ids=[hit.document_id for hit in vector_hits],
+                )
+                documents_by_id = {document.id: document for document in documents}
+                seen_document_ids: set[UUID] = set()
+                for hit in vector_hits:
+                    document = documents_by_id.get(hit.document_id)
+                    if document is None or hit.document_id in seen_document_ids:
+                        continue
+                    seen_document_ids.add(hit.document_id)
+                    results.append(
+                        KnowledgeDocumentResult(
+                            document_id=document.id,
+                            title=document.title,
+                            external_document_id=document.external_document_id,
+                            source_uri=document.source_uri,
+                            status=document.status,
+                            visibility=document.visibility,
+                            content_snippet=hit.content_snippet,
+                        )
+                    )
+            if not results:
+                results = await tool.search(
+                    KnowledgeSearchRequest(
+                        scope=scope,
+                        query=request.query,
+                        limit=request.limit,
+                    )
+                )
             final_response = (
                 f"已找到 {len(results)} 条知识文档。"
                 if results

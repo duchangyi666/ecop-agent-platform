@@ -26,4 +26,7 @@ def test_readme_documents_model_gateway_secret_and_offline_boundaries() -> None:
     assert "FakeModelGateway" in readme
     assert "自动回归不执行真实 API 冒烟请求" in readme
     assert "不保存 Key、完整 Prompt 或模型响应原文" in readme
-    assert "尚未接入 RAG、Milvus、SSE" in readme
+    assert "RAG 向量知识库" in readme
+    assert "MILVUS_URI" in readme
+    assert "knowledge.ingest" in readme
+    assert "尚未接入 SSE、正式身份认证或第三方支付" in readme

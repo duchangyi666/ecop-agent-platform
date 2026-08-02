@@ -10,13 +10,16 @@ from backend.agent.knowledge_workflow import (
     KnowledgeWorkflowRequest,
     KnowledgeWorkflowService,
 )
+from backend.rag.ingestion import KnowledgeIngestRequest, KnowledgeIngestService
 from backend.agent.state import create_agent_state
 from backend.api.dependencies import (
     RequestContext,
+    get_knowledge_vector_store,
     get_session_factory_dependency,
     require_permission,
 )
-from backend.api.schemas import KnowledgeSearchResponse
+from backend.api.schemas import KnowledgeIngestResponse, KnowledgeSearchResponse
+from backend.rag.vector_store import KnowledgeVectorStore
 
 router = APIRouter(prefix="/api/v1", tags=["knowledge"])
 
@@ -29,9 +32,10 @@ async def search_knowledge(
     thread_id: Annotated[str | None, Query(max_length=120)] = None,
     context: RequestContext = Depends(require_permission("knowledge.search")),
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
+    vector_store: KnowledgeVectorStore | None = Depends(get_knowledge_vector_store),
 ) -> KnowledgeSearchResponse:
     resolved_thread_id = thread_id or f"knowledge-{uuid4().hex}"
-    result = await KnowledgeWorkflowService(session_factory).run(
+    result = await KnowledgeWorkflowService(session_factory, vector_store=vector_store).run(
         KnowledgeWorkflowRequest(
             thread_id=resolved_thread_id,
             state=create_agent_state(
@@ -64,6 +68,23 @@ async def search_knowledge(
         response.status_code = status.HTTP_202_ACCEPTED
 
     return KnowledgeSearchResponse.from_result(request_id=context.request_id, result=result)
+
+
+@router.post("/knowledge/documents", response_model=KnowledgeIngestResponse, status_code=201)
+async def ingest_knowledge_document(
+    payload: KnowledgeIngestRequest,
+    context: RequestContext = Depends(require_permission("knowledge.ingest")),
+    session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
+    vector_store: KnowledgeVectorStore | None = Depends(get_knowledge_vector_store),
+) -> KnowledgeIngestResponse:
+    result = await KnowledgeIngestService(
+        session_factory,
+        vector_store=vector_store,
+    ).run(
+        scope=context.scope,
+        request=payload,
+    )
+    return KnowledgeIngestResponse.from_result(request_id=context.request_id, result=result)
 
 
 __all__ = ["router"]

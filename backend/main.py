@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import logging
+from typing import Any
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
@@ -17,8 +18,10 @@ from backend.api.routes.tickets import router as tickets_router
 from backend.domain.common import DomainError
 from backend.llm.factory import create_model_gateway
 from backend.llm.gateway import ModelGateway
+from backend.rag.vector_store import KnowledgeVectorStore, create_knowledge_vector_store
 
 logger = logging.getLogger(__name__)
+_UNSET = object()
 
 
 def _request_id(request: Request) -> str:
@@ -39,11 +42,21 @@ async def lifespan(app: FastAPI):
     close = getattr(gateway, "aclose", None)
     if close is not None:
         await close()
+    vector_store = getattr(app.state, "knowledge_vector_store", None)
+    close_vector_store = getattr(vector_store, "close", None)
+    if close_vector_store is not None:
+        await close_vector_store()
 
 
-def create_app(model_gateway: ModelGateway | None = None) -> FastAPI:
+def create_app(
+    model_gateway: ModelGateway | None = None,
+    knowledge_vector_store: KnowledgeVectorStore | None | Any = _UNSET,
+) -> FastAPI:
     app = FastAPI(title="Enterprise Customer Operations Platform", version="0.1.0", lifespan=lifespan)
     app.state.model_gateway = model_gateway or create_model_gateway()
+    if knowledge_vector_store is _UNSET:
+        knowledge_vector_store = create_knowledge_vector_store()
+    app.state.knowledge_vector_store = knowledge_vector_store
 
     @app.get("/healthz", response_model=HealthResponse)
     async def healthz() -> HealthResponse:

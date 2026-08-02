@@ -124,6 +124,31 @@ class KnowledgeDocumentResponse(BaseModel):
     source_uri: str | None
     status: str
     visibility: str
+    content_snippet: str | None = None
+
+
+class KnowledgeIngestResponse(BaseModel):
+    request_id: str
+    thread_id: str
+    document_id: UUID
+    version_number: int
+    chunk_count: int
+    vector_indexed: bool
+    trace_id: UUID | None = None
+    audit_event_ids: list[UUID] = Field(default_factory=list)
+
+    @classmethod
+    def from_result(cls, *, request_id: str, result: Any) -> "KnowledgeIngestResponse":
+        return cls(
+            request_id=request_id,
+            thread_id=result.thread_id,
+            document_id=result.document_id,
+            version_number=result.version_number,
+            chunk_count=result.chunk_count,
+            vector_indexed=result.vector_indexed,
+            trace_id=result.trace_id,
+            audit_event_ids=list(result.audit_event_ids),
+        )
 
 
 class KnowledgeSearchResponse(BaseModel):
@@ -152,6 +177,7 @@ class KnowledgeSearchResponse(BaseModel):
                     source_uri=item.source_uri,
                     status=item.status,
                     visibility=item.visibility,
+                    content_snippet=item.content_snippet,
                 )
                 for item in result.results
             ],
@@ -217,6 +243,7 @@ __all__ = [
     "ErrorResponse",
     "HealthResponse",
     "KnowledgeDocumentResponse",
+    "KnowledgeIngestResponse",
     "KnowledgeSearchResponse",
     "RefundCreateRequest",
     "RefundResponse",

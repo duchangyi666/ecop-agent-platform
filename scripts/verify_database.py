@@ -124,8 +124,8 @@ async def verify_migrations(database_url: str) -> None:
             revision = await connection.scalar(text("SELECT version_num FROM alembic_version"))
     finally:
         await engine.dispose()
-    if revision != "005":
-        raise RuntimeError(f"expected Alembic revision 005, found {revision!r}")
+    if revision != "006":
+        raise RuntimeError(f"expected Alembic revision 006, found {revision!r}")
 
 
 async def _main() -> None:

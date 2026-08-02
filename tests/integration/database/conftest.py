@@ -22,6 +22,7 @@ from backend.database.models.governance import (
     WorkflowCheckpoint,
 )
 from backend.database.models.identity import Permission, Role, Tenant, User, UserRole
+from backend.database.models.knowledge import KnowledgeChunk
 from backend.database.models.support import (
     ApprovalAction,
     ApprovalRequest,
@@ -75,6 +76,7 @@ async def _cleanup(factory: async_sessionmaker[AsyncSession], tenant_id: UUID) -
             TicketEvent,
             TicketAssignment,
             Ticket,
+            KnowledgeChunk,
             DocumentVersion,
             Document,
             Refund,

@@ -12,6 +12,7 @@ from backend.database.base import TenantScope
 from backend.database.session import get_session_factory
 from backend.database.unit_of_work import UnitOfWork
 from backend.llm.gateway import ModelGateway
+from backend.rag.vector_store import KnowledgeVectorStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +67,10 @@ def get_app_model_gateway(request: Request) -> ModelGateway:
     return request.app.state.model_gateway
 
 
+def get_knowledge_vector_store(request: Request) -> KnowledgeVectorStore | None:
+    return request.app.state.knowledge_vector_store
+
+
 def require_permission(permission_code: str):
     async def dependency(
         context=Depends(get_request_context),
@@ -102,6 +107,7 @@ __all__ = [
     "RequestContext",
     "get_app_model_gateway",
     "get_database_url",
+    "get_knowledge_vector_store",
     "get_request_context",
     "get_session_factory_dependency",
     "require_permission",

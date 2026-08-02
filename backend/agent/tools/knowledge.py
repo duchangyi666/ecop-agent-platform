@@ -25,6 +25,7 @@ class KnowledgeDocumentResult(BaseModel):
     source_uri: str | None
     status: str
     visibility: str
+    content_snippet: str | None = None
 
 
 class KnowledgeTool:

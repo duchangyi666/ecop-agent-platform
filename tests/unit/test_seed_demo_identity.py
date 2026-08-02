@@ -10,4 +10,5 @@ def test_seed_demo_identity_exposes_explicit_permission_codes() -> None:
         "customer.consult",
         "ticket.create",
         "knowledge.search",
+        "knowledge.ingest",
     }

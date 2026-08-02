@@ -9,7 +9,8 @@
 - Pydantic：2.11.4
 - LangGraph：1.0.9
 - PostgreSQL：项目专用 Docker 容器，映射端口 `54329`
-- Alembic 当前迁移头：`005_refund_approval_checkpoint`
+- pymilvus：2.4.9（RAG 向量存储；BGE-M3 使用可选 `sentence-transformers`）
+- Alembic 当前迁移头：`006_knowledge_chunks`
 - 数据库连接：`postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations`
 
 ## 启动数据库与验证
@@ -29,7 +30,7 @@ $env:PYTHONNOUSERSITE = "1"
 ```powershell
 $env:PYTHONNOUSERSITE = "1"
 & E:\anaconda3\envs\edu_agent\python.exe -m pip check
-& E:\anaconda3\envs\edu_agent\python.exe -m pytest tests/unit tests/integration/database tests/integration/agent -q
+& E:\anaconda3\envs\edu_agent\python.exe -m pytest tests/unit tests/integration/database tests/integration/agent tests/integration/api tests/integration/vectorstore -q
 & E:\anaconda3\envs\edu_agent\python.exe -m compileall -q backend scripts
 & E:\anaconda3\envs\edu_agent\python.exe -m alembic check
 ```
@@ -56,11 +57,12 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 - `POST /api/v1/customer-consultations`：调用主图生成客户咨询安全回复；
 - `POST /api/v1/tickets`：创建租户作用域工单；
 - `GET /api/v1/knowledge/search`：检索当前租户 active 知识文档；
+- `POST /api/v1/knowledge/documents`：摄取知识文档、分片并写入 Milvus 向量索引；
 - `POST /api/v1/refunds`：提交本地退款申请；
 - `POST /api/v1/approvals/{approval_request_id}`：批准或拒绝退款审批；
 - `GET /api/v1/workflows/{thread_id}`：按租户查询脱敏工作流状态。
 
-业务请求需要携带开发环境 Header：`X-Tenant-Id`、`X-Actor-Id`、`X-Actor-Type`，可选 `X-Request-Id`。这些 Header 只用于当前本地开发和集成测试，不等同于生产 JWT/OAuth 认证。客户咨询需要 `customer.consult`，工单创建需要 `ticket.create`，知识检索需要 `knowledge.search`，退款接口需要 `refund.request` / `refund.approve`。接口详细合同见 [`docs/superpowers/specs/2026-08-02-退款业务HTTP API设计.md`](docs/superpowers/specs/2026-08-02-退款业务HTTP%20API设计.md) 和 [`docs/superpowers/specs/2026-08-02-客户咨询API与模型网关工厂设计.md`](docs/superpowers/specs/2026-08-02-客户咨询API与模型网关工厂设计.md)。
+业务请求需要携带开发环境 Header：`X-Tenant-Id`、`X-Actor-Id`、`X-Actor-Type`，可选 `X-Request-Id`。这些 Header 只用于当前本地开发和集成测试，不等同于生产 JWT/OAuth 认证。客户咨询需要 `customer.consult`，工单创建需要 `ticket.create`，知识检索需要 `knowledge.search`，知识摄取需要 `knowledge.ingest`，退款接口需要 `refund.request` / `refund.approve`。接口详细合同见 [`docs/superpowers/specs/2026-08-02-退款业务HTTP API设计.md`](docs/superpowers/specs/2026-08-02-退款业务HTTP%20API设计.md) 和 [`docs/superpowers/specs/2026-08-02-客户咨询API与模型网关工厂设计.md`](docs/superpowers/specs/2026-08-02-客户咨询API与模型网关工厂设计.md)。
 
 ## Guard 与安全边界
 
@@ -72,7 +74,32 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 - 无法判断业务场景：返回 `needs_clarification`，下一动作是 `ask_clarification`；
 - 退款服务只有在安全状态为 `allow`、业务域为 `billing` 时才会读取 Payment 或执行 `billing.preview` / 退款申请；
 - 工单服务只有在安全状态为 `allow`、业务域为 `ticket` 时才会执行 `ticket.create` / `ticket.update`；
-- 知识检索服务只查询当前租户 `active` 文档的标题、外部文档 ID 和来源 URI，不接入 Milvus/RAG。
+- 知识检索服务只查询当前租户 `active` 文档；未配置 Milvus 时回退到 PostgreSQL 标题检索，配置后使用租户过滤的向量召回。
+
+## RAG 向量知识库
+
+项目新增可降级的 RAG 基础层：`POST /api/v1/knowledge/documents` 会把知识内容分片后写入 PostgreSQL `knowledge_chunks`，并同步到 Milvus 向量集合；`GET /api/v1/knowledge/search` 在配置 `MILVUS_URI` 时优先使用租户过滤的向量召回，未配置或向量结果为空时回退到 PostgreSQL 标题检索。
+
+启动项目专用 Milvus 栈：
+
+```powershell
+docker compose -f infra/compose/docker-compose.rag.yml up -d
+$env:MILVUS_URI = "http://localhost:19541"
+```
+
+当前本地验证也可以复用已运行的 Milvus 实例，例如：
+
+```powershell
+$env:MILVUS_URI = "http://localhost:19531"
+```
+
+默认 Embedding 使用确定性的离线向量，不下载模型、不访问外网。如需使用 BGE-M3，指定本地模型目录：
+
+```powershell
+$env:BGE_M3_MODEL_PATH = "D:\models\BAAI\bge-m3"
+```
+
+本阶段不保存原始知识正文到审计、日志或运行轨迹；搜索响应只返回文档摘要和最多 300 字的分片摘要。尚未接入 BGE-M3 默认加载、混合检索、Reranker、SSE、正式身份认证或第三方支付。
 
 Guard 终止结果会写入同一租户的 `AuditLog`、`RuntimeTrace` 和 `WorkflowCheckpoint`。检查点和对外响应不保存或回显敏感原文。Guard 使用当前仓库已安装的确定性 Python/Pydantic 规则，不代表已经接入 LLM 安全分类器、Redis、第三方支付或正式 JWT/OAuth。
 
@@ -101,7 +128,7 @@ $env:DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 $env:DEEPSEEK_MODEL = "deepseek-v4-flash"
 ```
 
-当前阶段只完成模型网关、结构化回复和输出安全边界，尚未接入 RAG、Milvus、SSE、正式身份认证或第三方支付。模型不能直接执行数据库写入和业务工具。
+当前阶段只完成模型网关、结构化回复、输出安全边界和 RAG 向量检索基础，尚未接入 SSE、正式身份认证或第三方支付。模型不能直接执行数据库写入和业务工具。
 
 为开发用户授予退款权限：
 
@@ -111,7 +138,7 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 & E:\anaconda3\envs\edu_agent\python.exe scripts\seed_demo_identity.py `
   --tenant-id <租户UUID> `
   --user-id <用户UUID> `
-  --permissions refund.request refund.approve customer.consult ticket.create knowledge.search
+  --permissions refund.request refund.approve customer.consult ticket.create knowledge.search knowledge.ingest
 ```
 
 该脚本只允许声明的五个权限码，并且重复执行幂等；仅用于开发和测试，不替代生产认证、角色审批和密钥管理。
@@ -122,6 +149,7 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 - `backend/database/models`：身份、计费、工单、治理和评测模型
 - `backend/database/repositories`：租户作用域 Repository
 - `backend/database/unit_of_work.py`：事务边界与 Repository 组合
+- `backend/rag`：Embedding、文本分片、Milvus 向量存储和知识摄取服务
 - `alembic/versions`：数据库迁移链
 - `scripts/verify_database.py`：数据库结构和迁移头验收
 - `docs/architecture`：中文领域模型、数据库、事务、Guard、多智能体工作流和退款审批闭环文档

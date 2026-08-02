@@ -23,6 +23,7 @@ SUPPORTED_PERMISSIONS = {
     "customer.consult",
     "ticket.create",
     "knowledge.search",
+    "knowledge.ingest",
 }
 ROLE_CODES = {
     "refund.request": "demo_refund_requester",
@@ -30,6 +31,7 @@ ROLE_CODES = {
     "customer.consult": "demo_customer_service_consultant",
     "ticket.create": "demo_ticket_creator",
     "knowledge.search": "demo_knowledge_searcher",
+    "knowledge.ingest": "demo_knowledge_ingestor",
 }
 
 

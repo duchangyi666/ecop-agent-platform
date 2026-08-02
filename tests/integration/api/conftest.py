@@ -38,7 +38,7 @@ async def api_client(database_url: str, session_factory, model_gateway):
     from backend.api.dependencies import get_database_url, get_session_factory_dependency
     from backend.main import create_app
 
-    app = create_app(model_gateway=model_gateway)
+    app = create_app(model_gateway=model_gateway, knowledge_vector_store=None)
     app.dependency_overrides[get_database_url] = lambda: database_url
     app.dependency_overrides[get_session_factory_dependency] = lambda: session_factory
     with TestClient(app) as client:
@@ -108,6 +108,13 @@ async def ticket_api_client(api_client, grant_permission, tenant_a_user):
 @pytest_asyncio.fixture
 async def knowledge_api_client(api_client, grant_permission, tenant_a_user):
     await grant_permission(tenant_a_user.id, "knowledge.search")
+    return api_client
+
+
+@pytest_asyncio.fixture
+async def knowledge_ingest_api_client(api_client, grant_permission, tenant_a_user):
+    await grant_permission(tenant_a_user.id, "knowledge.search")
+    await grant_permission(tenant_a_user.id, "knowledge.ingest")
     return api_client
 
 
