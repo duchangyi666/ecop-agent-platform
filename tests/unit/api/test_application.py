@@ -34,3 +34,11 @@ def test_create_app_accepts_explicit_model_gateway() -> None:
     app = create_app(model_gateway=gateway)
 
     assert app.state.model_gateway is gateway
+
+
+def test_metrics_endpoint_exposes_prometheus_text() -> None:
+    response = TestClient(create_app()).get("/metrics")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+    assert "ecop_health_status 1" in response.text

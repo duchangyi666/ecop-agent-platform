@@ -10,7 +10,7 @@
 - LangGraph：1.0.9
 - PostgreSQL：项目专用 Docker 容器，映射端口 `54329`
 - pymilvus：2.4.9（RAG 向量存储；BGE-M3 使用可选 `sentence-transformers`）
-- Alembic 当前迁移头：`006_knowledge_chunks`
+- Alembic 当前迁移头：`008_conversations`
 - 数据库连接：`postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations`
 
 ## 启动数据库与验证
@@ -55,6 +55,8 @@ docker compose up -d --build
 - 前端控制台：`http://localhost:3000/`
 - 后端 API：`http://localhost:8000/`
 - Mock 外部服务：`http://localhost:8001/`
+- Prometheus：`http://localhost:19090/`
+- Grafana：`http://localhost:13000/`
 - PostgreSQL：`localhost:54329`
 - Redis：`localhost:16380`
 - Milvus：`localhost:19541`
@@ -68,6 +70,15 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 ```
 
 GitHub Actions 流水线见 `.github/workflows/ci.yml`，会启动 PostgreSQL/Redis/Milvus/etcd/MinIO，执行迁移、完整测试和迁移漂移检查。
+
+## Prometheus 与 Grafana
+
+`docker compose up -d --build` 会同时启动 Prometheus 和 Grafana：
+
+- Prometheus：`http://localhost:19090/`，抓取后端 `/metrics`；
+- Grafana：`http://localhost:13000/`，默认账号由 `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` 控制，未设置时为 `admin` / `admin`。
+
+`infra/prometheus/prometheus.yml` 定义后端抓取目标，`infra/grafana/provisioning/` 预置 Prometheus 数据源。当前 `/metrics` 提供 HTTP 请求计数和应用健康指标，业务级 Trace、成本、Agent 指标继续通过 Runtime API 查看。
 
 ## Kubernetes 与运维
 
@@ -107,6 +118,10 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 - `GET /healthz`：应用存活检查；
 - `POST /api/v1/customer-consultations`：调用主图生成客户咨询安全回复；
 - `POST /api/v1/customer-consultations/stream`：以 SSE 推送客户咨询开始、证据检索和完成事件；
+- `POST /api/v1/conversations`：创建客户会话并保存首条消息；
+- `GET /api/v1/conversations`：按租户查看会话列表；
+- `GET /api/v1/conversations/{conversation_id}`：查看会话与消息；
+- `POST /api/v1/conversations/{conversation_id}/messages`：追加会话消息；
 - `POST /api/v1/auth/tokens`：为当前租户活动用户签发本地 JWT Bearer Token；
 - `GET /api/v1/evaluations`：查看当前租户评测运行；
 - `POST /api/v1/evaluations/run`：运行检索评测并返回 Recall@K、MRR、NDCG；
@@ -115,13 +130,22 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 - `GET /api/v1/runtime/costs`：查看当前租户 Token 和成本汇总；
 - `GET /api/v1/runtime/agents`：查看 Agent 定义清单；
 - `POST /api/v1/tickets`：创建租户作用域工单；
+- `GET /api/v1/tickets`：按租户查看工单列表；
+- `GET /api/v1/tickets/{ticket_id}`：查看工单、消息、事件和审批关联；
+- `PATCH /api/v1/tickets/{ticket_id}`：更新工单状态、优先级或追加内部备注；
+- `GET /api/v1/approvals`：按租户查看审批列表；
+- `GET /api/v1/approvals/{approval_request_id}`：查看审批详情与动作轨迹；
 - `GET /api/v1/knowledge/search`：检索当前租户 active 知识文档；
 - `POST /api/v1/knowledge/documents`：摄取知识文档、分片并写入 Milvus 向量索引；
+- `GET /api/v1/knowledge/documents`：查看当前租户 active 文档；
+- `DELETE /api/v1/knowledge/documents/{document_id}`：软删除文档并清理 Milvus 分片；
+- `POST /api/v1/knowledge/reindex`：对当前租户 active 文档重建向量索引；
 - `POST /api/v1/refunds`：提交本地退款申请；
 - `POST /api/v1/approvals/{approval_request_id}`：批准或拒绝退款审批；
 - `GET /api/v1/workflows/{thread_id}`：按租户查询脱敏工作流状态。
+- `GET /metrics`：Prometheus 文本格式 HTTP 请求指标。
 
-业务请求需要携带开发环境 Header：`X-Tenant-Id`、`X-Actor-Id`、`X-Actor-Type`，可选 `X-Request-Id`。这些 Header 只用于当前本地开发和集成测试，不等同于生产 JWT/OAuth 认证。客户咨询需要 `customer.consult`，工单创建需要 `ticket.create`，知识检索需要 `knowledge.search`，知识摄取需要 `knowledge.ingest`，退款接口需要 `refund.request` / `refund.approve`，评测需要 `evaluation.read` / `evaluation.run`，Runtime 查看需要 `runtime.read`。接口详细合同见 [`docs/superpowers/specs/2026-08-02-退款业务HTTP API设计.md`](docs/superpowers/specs/2026-08-02-退款业务HTTP%20API设计.md) 和 [`docs/superpowers/specs/2026-08-02-客户咨询API与模型网关工厂设计.md`](docs/superpowers/specs/2026-08-02-客户咨询API与模型网关工厂设计.md)。
+业务请求需要携带开发环境 Header：`X-Tenant-Id`、`X-Actor-Id`、`X-Actor-Type`，可选 `X-Request-Id`。这些 Header 只用于当前本地开发和集成测试，不等同于生产 JWT/OAuth 认证。客户咨询需要 `customer.consult`，会话读写需要 `conversation.create` / `conversation.read` / `conversation.write`，工单需要 `ticket.create` / `ticket.read` / `ticket.update`，审批查看需要 `approval.read`，知识库需要 `knowledge.search` / `knowledge.ingest` / `knowledge.delete`，退款接口需要 `refund.request` / `refund.approve`，评测需要 `evaluation.read` / `evaluation.run`，Runtime 查看需要 `runtime.read`。接口详细合同见 [`docs/superpowers/specs/2026-08-02-退款业务HTTP API设计.md`](docs/superpowers/specs/2026-08-02-退款业务HTTP%20API设计.md) 和 [`docs/superpowers/specs/2026-08-02-客户咨询API与模型网关工厂设计.md`](docs/superpowers/specs/2026-08-02-客户咨询API与模型网关工厂设计.md)。
 
 ## 本地 JWT 认证
 
@@ -173,13 +197,13 @@ SSE 不推送模型 Token、思维链、系统 Prompt、Key 或知识原文；�
 
 ## 本地前端控制台
 
-FastAPI 会直接托管 `frontend/` 静态控制台，启动后端后访问：
+FastAPI 会直接托管 `frontend/` 静态工作台，启动后端后访问：
 
 ```text
 http://localhost:8000/
 ```
 
-控制台提供本地演示所需的最小交互：填写租户/用户 UUID 获取 JWT Token、检索当前租户知识文档、发送客户咨询并展示 SSE 进度事件，以及查看 Runtime Trace、成本和 Agent 清单。它不包含完整 Customer Portal、Support Workspace 或 Admin Console，也不是生产级 Next.js 前端。
+工作台提供总览、SSE 客户咨询、会话、工单、审批、知识库、Runtime 和评测八个视图：填写租户/用户 UUID 获取 JWT Token 后，可完成会话创建与消息追加、工单创建与状态更新、审批查看与决策、知识检索/摄取/归档/重建索引、客户咨询 SSE 进度事件，以及 Runtime Trace、成本和 Agent 清单。它仍是静态托管的企业级运营界面，不包含生产级 Next.js 应用、正式登录页或完整 Admin Console。
 
 ## 评测系统
 
@@ -341,10 +365,10 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 & E:\anaconda3\envs\edu_agent\python.exe scripts\seed_demo_identity.py `
   --tenant-id <租户UUID> `
   --user-id <用户UUID> `
-  --permissions refund.request refund.approve customer.consult ticket.create knowledge.search knowledge.ingest evaluation.read evaluation.run runtime.read
+  --permissions refund.request refund.approve customer.consult conversation.create conversation.read conversation.write ticket.create ticket.read ticket.update approval.read knowledge.search knowledge.ingest knowledge.delete evaluation.read evaluation.run runtime.read
 ```
 
-该脚本只允许声明的五个权限码，并且重复执行幂等；仅用于开发和测试，不替代生产认证、角色审批和密钥管理。
+该脚本只允许声明的权限码，并且重复执行幂等；仅用于开发和测试，不替代生产认证、角色审批和密钥管理。
 
 ## 目录说明
 

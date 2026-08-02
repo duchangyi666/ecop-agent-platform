@@ -284,10 +284,71 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 
+class Conversation(Base, TenantAuditMixin):
+    __tablename__ = "conversations"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_conversations_tenant_id_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "customer_id"],
+            ["customers.tenant_id", "customers.id"],
+            name="fk_conversations_tenant_customer",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "user_id"],
+            ["users.tenant_id", "users.id"],
+            name="fk_conversations_tenant_user",
+            ondelete="RESTRICT",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    customer_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True, index=True)
+    user_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True, index=True)
+    channel: Mapped[str] = mapped_column(String(50), nullable=False)
+    subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    messages: Mapped[list["ConversationMessage"]] = relationship(back_populates="conversation")
+
+
+class ConversationMessage(Base, TenantAuditMixin):
+    __tablename__ = "conversation_messages"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_conversation_messages_tenant_id_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "conversation_id"],
+            ["conversations.tenant_id", "conversations.id"],
+            name="fk_conversation_messages_tenant_conversation",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "author_id"],
+            ["users.tenant_id", "users.id"],
+            name="fk_conversation_messages_tenant_author",
+            ondelete="RESTRICT",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    conversation_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False, index=True)
+    author_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True, index=True)
+    author_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    role: Mapped[str] = mapped_column(String(50), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    visibility: Mapped[str] = mapped_column(String(50), nullable=False)
+
+    conversation: Mapped["Conversation"] = relationship(back_populates="messages")
+
+
 __all__ = [
     "ApprovalAction",
     "ApprovalRequest",
     "AuditLog",
+    "Conversation",
+    "ConversationMessage",
     "Ticket",
     "TicketAssignment",
     "TicketEvent",

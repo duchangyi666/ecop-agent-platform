@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from sqlalchemy import func, or_, select
@@ -11,6 +12,66 @@ from backend.database.repositories.base import TenantScopedRepository
 
 
 class KnowledgeRepository(TenantScopedRepository):
+    async def list_documents(
+        self,
+        *,
+        scope: TenantScope,
+        limit: int = 50,
+        status: str | None = None,
+    ) -> list[Document]:
+        statement = select(Document).where(
+            Document.tenant_id == scope.tenant_id,
+            Document.deleted_at.is_(None),
+        )
+        if status:
+            statement = statement.where(Document.status == status)
+        statement = statement.order_by(Document.title).limit(limit)
+        return list(await self.session.scalars(statement))
+
+    async def get_document(
+        self,
+        *,
+        scope: TenantScope,
+        document_id: UUID,
+    ) -> Document | None:
+        statement = select(Document).where(
+            Document.tenant_id == scope.tenant_id,
+            Document.id == document_id,
+            Document.deleted_at.is_(None),
+        )
+        return await self.session.scalar(statement)
+
+    async def archive_document(
+        self,
+        *,
+        scope: TenantScope,
+        document_id: UUID,
+    ) -> Document | None:
+        document = await self.get_document(scope=scope, document_id=document_id)
+        if document is None:
+            return None
+        document.status = "archived"
+        document.deleted_at = datetime.now(timezone.utc)
+        await self.session.flush()
+        return document
+
+    async def list_document_chunks(
+        self,
+        *,
+        scope: TenantScope,
+        document_id: UUID,
+    ) -> list[KnowledgeChunk]:
+        statement = (
+            self._tenant_visible(
+                select(KnowledgeChunk),
+                KnowledgeChunk,
+                scope=scope,
+            )
+            .where(KnowledgeChunk.document_id == document_id)
+            .order_by(KnowledgeChunk.chunk_number)
+        )
+        return list(await self.session.scalars(statement))
+
     async def search_documents(
         self,
         *,

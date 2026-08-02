@@ -143,6 +143,33 @@ services:
       redis:
         condition: service_healthy
 
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: ecop-prometheus
+    restart: unless-stopped
+    ports:
+      - "19090:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ecop_prometheus_data:/prometheus
+    depends_on:
+      - backend-api
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: ecop-grafana
+    restart: unless-stopped
+    ports:
+      - "13000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ecop_grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
   frontend:
     build:
       context: .
@@ -163,3 +190,7 @@ volumes:
     name: ecop_etcd_data
   ecop_minio_data:
     name: ecop_minio_data
+  ecop_prometheus_data:
+    name: ecop_prometheus_data
+  ecop_grafana_data:
+    name: ecop_grafana_data

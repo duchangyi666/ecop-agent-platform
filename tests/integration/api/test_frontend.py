@@ -6,7 +6,7 @@ def test_frontend_console_is_served(api_client) -> None:
 
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
-    assert "CloudDesk 客户运营控制台" in response.text
+    assert "CloudDesk 运营工作台" in response.text
     assert "/app.js" in response.text
     assert "/styles.css" in response.text
 

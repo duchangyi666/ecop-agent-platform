@@ -24,6 +24,8 @@ import backend.database.models  # noqa: F401
 REQUIRED_UNIQUE_CONSTRAINTS = {
     ("payments", "uq_payments_tenant_id_external_payment_id"),
     ("refunds", "uq_refunds_tenant_id_idempotency_key"),
+    ("conversations", "uq_conversations_tenant_id_id"),
+    ("conversation_messages", "uq_conversation_messages_tenant_id_id"),
     ("approval_requests", "uq_approval_requests_tenant_id_id"),
     ("approval_actions", "uq_approval_actions_tenant_id_id"),
 }
@@ -124,8 +126,8 @@ async def verify_migrations(database_url: str) -> None:
             revision = await connection.scalar(text("SELECT version_num FROM alembic_version"))
     finally:
         await engine.dispose()
-    if revision != "007":
-        raise RuntimeError(f"expected Alembic revision 007, found {revision!r}")
+    if revision != "008":
+        raise RuntimeError(f"expected Alembic revision 008, found {revision!r}")
 
 
 async def _main() -> None:

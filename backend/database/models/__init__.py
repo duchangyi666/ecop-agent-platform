@@ -4,7 +4,17 @@ from backend.database.base import Base
 from backend.database.models.billing import Customer, CustomerContact, Invoice, Payment, Refund, Subscription
 from backend.database.models.identity import Permission, Role, Tenant, User, UserRole
 from backend.database.models.knowledge import KnowledgeChunk
-from backend.database.models.support import ApprovalAction, ApprovalRequest, AuditLog, Ticket, TicketAssignment, TicketEvent, TicketMessage
+from backend.database.models.support import (
+    ApprovalAction,
+    ApprovalRequest,
+    AuditLog,
+    Conversation,
+    ConversationMessage,
+    Ticket,
+    TicketAssignment,
+    TicketEvent,
+    TicketMessage,
+)
 from backend.database.models.governance import (
     AgentDefinition,
     AgentVersion,
@@ -34,6 +44,8 @@ __all__ = [
     "ApprovalRequest",
     "AuditLog",
     "Base",
+    "Conversation",
+    "ConversationMessage",
     "Customer",
     "CustomerContact",
     "Document",

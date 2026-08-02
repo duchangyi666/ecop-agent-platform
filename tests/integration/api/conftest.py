@@ -106,8 +106,24 @@ async def ticket_api_client(api_client, grant_permission, tenant_a_user):
 
 
 @pytest_asyncio.fixture
+async def ticket_ops_api_client(api_client, grant_permission, tenant_a_user):
+    await grant_permission(tenant_a_user.id, "ticket.create")
+    await grant_permission(tenant_a_user.id, "ticket.read")
+    await grant_permission(tenant_a_user.id, "ticket.update")
+    return api_client
+
+
+@pytest_asyncio.fixture
 async def knowledge_api_client(api_client, grant_permission, tenant_a_user):
     await grant_permission(tenant_a_user.id, "knowledge.search")
+    return api_client
+
+
+@pytest_asyncio.fixture
+async def knowledge_ops_api_client(api_client, grant_permission, tenant_a_user):
+    await grant_permission(tenant_a_user.id, "knowledge.search")
+    await grant_permission(tenant_a_user.id, "knowledge.ingest")
+    await grant_permission(tenant_a_user.id, "knowledge.delete")
     return api_client
 
 
@@ -115,6 +131,20 @@ async def knowledge_api_client(api_client, grant_permission, tenant_a_user):
 async def knowledge_ingest_api_client(api_client, grant_permission, tenant_a_user):
     await grant_permission(tenant_a_user.id, "knowledge.search")
     await grant_permission(tenant_a_user.id, "knowledge.ingest")
+    return api_client
+
+
+@pytest_asyncio.fixture
+async def conversation_api_client(api_client, grant_permission, tenant_a_user):
+    await grant_permission(tenant_a_user.id, "conversation.create")
+    await grant_permission(tenant_a_user.id, "conversation.read")
+    await grant_permission(tenant_a_user.id, "conversation.write")
+    return api_client
+
+
+@pytest_asyncio.fixture
+async def approval_read_api_client(api_client, grant_permission, tenant_a_user):
+    await grant_permission(tenant_a_user.id, "approval.read")
     return api_client
 
 

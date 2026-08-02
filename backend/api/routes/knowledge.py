@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Annotated
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -20,7 +20,15 @@ from backend.api.dependencies import (
     get_session_factory_dependency,
     require_permission,
 )
-from backend.api.schemas import KnowledgeIngestResponse, KnowledgeSearchResponse
+from backend.api.schemas import (
+    KnowledgeDeleteResponse,
+    KnowledgeDocumentListItem,
+    KnowledgeDocumentListResponse,
+    KnowledgeIngestResponse,
+    KnowledgeReindexResponse,
+    KnowledgeSearchResponse,
+)
+from backend.database.unit_of_work import UnitOfWork
 from backend.rag.vector_store import KnowledgeVectorStore
 
 router = APIRouter(prefix="/api/v1", tags=["knowledge"])
@@ -91,6 +99,113 @@ async def ingest_knowledge_document(
         request=payload,
     )
     return KnowledgeIngestResponse.from_result(request_id=context.request_id, result=result)
+
+
+@router.get("/knowledge/documents", response_model=KnowledgeDocumentListResponse)
+async def list_knowledge_documents(
+    context: RequestContext = Depends(require_permission("knowledge.search")),
+    session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> KnowledgeDocumentListResponse:
+    async with UnitOfWork(session_factory, scope=context.scope) as uow:
+        documents = await uow.knowledge.list_documents(
+            scope=context.scope,
+            limit=limit,
+            status="active",
+        )
+    return KnowledgeDocumentListResponse(
+        request_id=context.request_id,
+        documents=[
+            KnowledgeDocumentListItem(
+                document_id=document.id,
+                external_document_id=document.external_document_id,
+                title=document.title,
+                status=document.status,
+                source_uri=document.source_uri,
+                visibility=document.visibility,
+                created_at=document.created_at,
+                updated_at=document.updated_at,
+            )
+            for document in documents
+        ],
+    )
+
+
+@router.delete("/knowledge/documents/{document_id}", response_model=KnowledgeDeleteResponse)
+async def delete_knowledge_document(
+    document_id: UUID,
+    context: RequestContext = Depends(require_permission("knowledge.delete")),
+    session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
+    vector_store: KnowledgeVectorStore | None = Depends(get_knowledge_vector_store),
+) -> KnowledgeDeleteResponse:
+    vector_indexed = False
+    async with UnitOfWork(session_factory, scope=context.scope) as uow:
+        document = await uow.knowledge.archive_document(
+            scope=context.scope,
+            document_id=document_id,
+        )
+        if document is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"code": "document_not_found", "message": "document not found"},
+            )
+        await uow.support.append_audit_log(
+            scope=context.scope,
+            actor_id=context.scope.actor_id,
+            action="knowledge.document_archived",
+            resource_type="document",
+            resource_id=document_id,
+            metadata={"title": document.title, "external_document_id": document.external_document_id},
+        )
+    if vector_store is not None:
+        await vector_store.delete_document_chunks(
+            tenant_id=context.scope.tenant_id,
+            document_id=document_id,
+        )
+        vector_indexed = True
+    return KnowledgeDeleteResponse(
+        request_id=context.request_id,
+        document_id=document_id,
+        status="archived",
+        vector_indexed=vector_indexed,
+    )
+
+
+@router.post("/knowledge/reindex", response_model=KnowledgeReindexResponse)
+async def reindex_knowledge_documents(
+    context: RequestContext = Depends(require_permission("knowledge.ingest")),
+    session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
+    vector_store: KnowledgeVectorStore | None = Depends(get_knowledge_vector_store),
+) -> KnowledgeReindexResponse:
+    document_count = 0
+    chunk_count = 0
+    async with UnitOfWork(session_factory, scope=context.scope) as uow:
+        documents = await uow.knowledge.list_documents(
+            scope=context.scope,
+            limit=500,
+            status="active",
+        )
+        for document in documents:
+            chunks = await uow.knowledge.list_document_chunks(
+                scope=context.scope,
+                document_id=document.id,
+            )
+            if not chunks:
+                continue
+            document_count += 1
+            chunk_count += len(chunks)
+            if vector_store is not None:
+                await vector_store.upsert_document_chunks(
+                    tenant_id=context.scope.tenant_id,
+                    document=document,
+                    chunks=chunks,
+                )
+    return KnowledgeReindexResponse(
+        request_id=context.request_id,
+        document_count=document_count,
+        chunk_count=chunk_count,
+        vector_indexed=vector_store is not None,
+    )
 
 
 __all__ = ["router"]

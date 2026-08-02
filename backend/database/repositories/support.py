@@ -15,7 +15,16 @@ from backend.database.base import TenantScope
 from backend.database.models.billing import Customer, Refund
 from backend.database.models.identity import User
 from backend.database.repositories.base import TenantScopedRepository
-from backend.database.models.support import ApprovalAction, ApprovalRequest, AuditLog, Ticket, TicketEvent, TicketMessage
+from backend.database.models.support import (
+    ApprovalAction,
+    ApprovalRequest,
+    AuditLog,
+    Conversation,
+    ConversationMessage,
+    Ticket,
+    TicketEvent,
+    TicketMessage,
+)
 from backend.domain.approval import ApprovalStatus, transition_approval
 from backend.domain.common import DomainError
 from backend.domain.ticket import TicketStatus, transition_ticket
@@ -407,6 +416,252 @@ class SupportRepository(TenantScopedRepository):
         self.session.add(log)
         await self.session.flush()
         return log
+
+    async def create_conversation(
+        self,
+        *,
+        scope: TenantScope,
+        customer_id: UUID | None,
+        user_id: UUID | None,
+        channel: str,
+        subject: str,
+    ) -> Conversation:
+        if customer_id is not None:
+            customer = await self._get_customer_for_tenant(scope=scope, customer_id=customer_id)
+            if customer is None:
+                raise DomainError("customer not found in tenant scope")
+        stored_user_id = await self._get_user_id_in_tenant_or_none(scope=scope, user_id=user_id)
+        conversation = Conversation(
+            id=uuid4(),
+            tenant_id=scope.tenant_id,
+            customer_id=customer_id,
+            user_id=stored_user_id,
+            channel=channel,
+            subject=subject,
+            status="open",
+        )
+        self.session.add(conversation)
+        await self.session.flush()
+        return conversation
+
+    async def list_conversations(
+        self,
+        *,
+        scope: TenantScope,
+        limit: int = 50,
+        status: str | None = None,
+    ) -> list[Conversation]:
+        statement = (
+            self._tenant_visible(
+                select(Conversation),
+                Conversation,
+                scope=scope,
+            )
+            .options(selectinload(Conversation.messages))
+        )
+        if status:
+            statement = statement.where(Conversation.status == status)
+        statement = statement.order_by(Conversation.started_at.desc()).limit(limit)
+        return list(await self.session.scalars(statement))
+
+    async def get_conversation(
+        self,
+        *,
+        scope: TenantScope,
+        conversation_id: UUID,
+    ) -> Conversation | None:
+        statement = (
+            self._tenant_visible(
+                select(Conversation),
+                Conversation,
+                scope=scope,
+            )
+            .options(selectinload(Conversation.messages))
+            .where(Conversation.id == conversation_id)
+        )
+        return await self.session.scalar(statement)
+
+    async def append_conversation_message(
+        self,
+        *,
+        scope: TenantScope,
+        conversation_id: UUID,
+        author_id: UUID | None,
+        author_type: str,
+        role: str,
+        body: str,
+        visibility: str,
+    ) -> ConversationMessage:
+        conversation = await self.get_conversation(scope=scope, conversation_id=conversation_id)
+        if conversation is None:
+            raise DomainError("conversation not found in tenant scope")
+        stored_author_id = await self._get_user_id_in_tenant_or_none(scope=scope, user_id=author_id)
+        message = ConversationMessage(
+            id=uuid4(),
+            tenant_id=scope.tenant_id,
+            conversation_id=conversation_id,
+            author_id=stored_author_id,
+            author_type=author_type,
+            role=role,
+            body=body,
+            visibility=visibility,
+        )
+        self.session.add(message)
+        conversation.messages.append(message)
+        await self.session.flush()
+        return message
+
+    async def update_conversation_status(
+        self,
+        *,
+        scope: TenantScope,
+        conversation_id: UUID,
+        target_status: str,
+        actor_id: UUID | None,
+        reason: str,
+    ) -> Conversation:
+        conversation = await self.get_conversation(scope=scope, conversation_id=conversation_id)
+        if conversation is None:
+            raise DomainError("conversation not found in tenant scope")
+        allowed = {
+            "open",
+            "in_progress",
+            "pending_customer",
+            "escalated",
+            "resolved",
+            "closed",
+            "cancelled",
+        }
+        if target_status not in allowed:
+            raise DomainError(f"unsupported conversation status: {target_status}")
+        conversation.status = target_status
+        if target_status in {"resolved", "closed"}:
+            conversation.resolved_at = datetime.now(timezone.utc)
+        stored_author_id = await self._get_user_id_in_tenant_or_none(scope=scope, user_id=actor_id)
+        self.session.add(
+            ConversationMessage(
+                id=uuid4(),
+                tenant_id=scope.tenant_id,
+                conversation_id=conversation_id,
+                author_id=stored_author_id,
+                author_type="system" if actor_id is None else "user",
+                role="system",
+                body=reason[:500],
+                visibility="internal",
+            )
+        )
+        await self.session.flush()
+        return conversation
+
+    async def list_tickets(
+        self,
+        *,
+        scope: TenantScope,
+        limit: int = 50,
+        status: str | None = None,
+    ) -> list[Ticket]:
+        statement = self._tenant_visible(
+            select(Ticket),
+            Ticket,
+            scope=scope,
+        )
+        if status:
+            statement = statement.where(Ticket.status == status)
+        statement = statement.order_by(Ticket.updated_at.desc()).limit(limit)
+        return list(await self.session.scalars(statement))
+
+    async def get_ticket_detail(
+        self,
+        *,
+        scope: TenantScope,
+        ticket_id: UUID,
+    ) -> Ticket | None:
+        statement = (
+            self._tenant_visible(
+                select(Ticket),
+                Ticket,
+                scope=scope,
+            )
+            .options(
+                selectinload(Ticket.messages),
+                selectinload(Ticket.events),
+                selectinload(Ticket.approval_requests),
+            )
+            .where(Ticket.id == ticket_id)
+        )
+        return await self.session.scalar(statement)
+
+    async def update_ticket_metadata(
+        self,
+        *,
+        scope: TenantScope,
+        ticket_id: UUID,
+        subject: str | None,
+        description_summary: str | None,
+        priority: str | None,
+        note: str | None,
+        actor_id: UUID | None,
+    ) -> Ticket:
+        ticket = await self._get_ticket_for_tenant(scope=scope, ticket_id=ticket_id)
+        if ticket is None:
+            raise DomainError("ticket not found in tenant scope")
+        changes: dict[str, str] = {}
+        if subject is not None:
+            ticket.subject = subject
+            changes["subject"] = subject
+        if description_summary is not None:
+            ticket.description_summary = description_summary
+            changes["description_summary"] = description_summary
+        if priority is not None:
+            ticket.priority = priority
+            changes["priority"] = priority
+        if note:
+            stored_actor_id = await self._get_user_id_in_tenant_or_none(scope=scope, user_id=actor_id)
+            self.session.add(
+                TicketMessage(
+                    id=uuid4(),
+                    tenant_id=scope.tenant_id,
+                    ticket_id=ticket.id,
+                    author_id=stored_actor_id,
+                    body=note,
+                    visibility="internal",
+                )
+            )
+            changes["note_added"] = "true"
+        self.session.add(
+            TicketEvent(
+                id=uuid4(),
+                tenant_id=scope.tenant_id,
+                ticket_id=ticket.id,
+                actor_id=await self._get_user_id_in_tenant_or_none(scope=scope, user_id=actor_id),
+                event_type="ticket_updated",
+                from_status=ticket.status,
+                to_status=ticket.status,
+                payload_summary=_sanitize_payload(changes),
+            )
+        )
+        await self.session.flush()
+        return ticket
+
+    async def list_approval_requests(
+        self,
+        *,
+        scope: TenantScope,
+        limit: int = 50,
+        status: str | None = None,
+    ) -> list[ApprovalRequest]:
+        statement = (
+            self._tenant_visible(
+                select(ApprovalRequest),
+                ApprovalRequest,
+                scope=scope,
+            )
+            .options(selectinload(ApprovalRequest.actions))
+        )
+        if status:
+            statement = statement.where(ApprovalRequest.status == status)
+        statement = statement.order_by(ApprovalRequest.expires_at).limit(limit)
+        return list(await self.session.scalars(statement))
 
 
 __all__ = ["SupportRepository"]

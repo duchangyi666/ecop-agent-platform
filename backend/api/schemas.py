@@ -332,8 +332,186 @@ class EvaluationRunResponse(BaseModel):
         )
 
 
+class ConversationCreateRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    customer_id: UUID | None = None
+    user_id: UUID | None = None
+    channel: Literal["customer_portal", "email", "chat", "support_workspace"] = "customer_portal"
+    subject: str = Field(min_length=1, max_length=255)
+    initial_message: str | None = Field(default=None, max_length=4000)
+
+
+class ConversationMessageCreateRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    role: Literal["user", "agent", "system"] = "user"
+    body: str = Field(min_length=1, max_length=4000)
+    visibility: Literal["public", "internal"] = "public"
+
+
+class ConversationMessageItem(BaseModel):
+    message_id: UUID
+    author_id: UUID | None = None
+    author_type: str
+    role: str
+    body: str
+    visibility: str
+    created_at: Any = None
+
+
+class ConversationItem(BaseModel):
+    conversation_id: UUID
+    customer_id: UUID | None = None
+    user_id: UUID | None = None
+    channel: str
+    subject: str
+    status: str
+    started_at: Any = None
+    resolved_at: Any = None
+    message_count: int = 0
+
+
+class ConversationListResponse(BaseModel):
+    request_id: str
+    conversations: list[ConversationItem] = Field(default_factory=list)
+
+
+class ConversationDetailResponse(BaseModel):
+    request_id: str
+    conversation: ConversationItem
+    messages: list[ConversationMessageItem] = Field(default_factory=list)
+
+
+class TicketListItem(BaseModel):
+    ticket_id: UUID
+    customer_id: UUID
+    subject: str
+    category: str | None = None
+    priority: str
+    status: str
+    current_assignee_id: UUID | None = None
+    resolved_at: Any = None
+    created_at: Any = None
+    updated_at: Any = None
+
+
+class TicketListResponse(BaseModel):
+    request_id: str
+    tickets: list[TicketListItem] = Field(default_factory=list)
+
+
+class TicketMessageItem(BaseModel):
+    message_id: UUID
+    author_id: UUID | None = None
+    body: str
+    visibility: str
+    created_at: Any = None
+
+
+class TicketEventItem(BaseModel):
+    event_id: UUID
+    actor_id: UUID | None = None
+    event_type: str
+    from_status: str | None = None
+    to_status: str | None = None
+    payload_summary: dict[str, Any] = Field(default_factory=dict)
+    occurred_at: Any = None
+
+
+class TicketDetailResponse(BaseModel):
+    request_id: str
+    ticket: TicketListItem
+    messages: list[TicketMessageItem] = Field(default_factory=list)
+    events: list[TicketEventItem] = Field(default_factory=list)
+
+
+class TicketPatchRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    status: str | None = Field(default=None, min_length=1, max_length=50)
+    subject: str | None = Field(default=None, min_length=1, max_length=255)
+    description_summary: str | None = Field(default=None, max_length=2000)
+    priority: Literal["low", "medium", "high", "urgent"] | None = None
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class ApprovalActionItem(BaseModel):
+    action_id: UUID
+    actor_id: UUID | None = None
+    action: str
+    reason: str
+    changes_summary: dict[str, Any] = Field(default_factory=dict)
+    acted_at: Any = None
+
+
+class ApprovalItem(BaseModel):
+    approval_request_id: UUID
+    ticket_id: UUID | None = None
+    refund_id: UUID | None = None
+    action: str
+    amount: Any = None
+    risk_level: str
+    approval_role: str
+    status: str
+    expires_at: Any = None
+    checkpoint_reference: str | None = None
+    action_count: int = 0
+
+
+class ApprovalListResponse(BaseModel):
+    request_id: str
+    approvals: list[ApprovalItem] = Field(default_factory=list)
+
+
+class ApprovalDetailResponse(BaseModel):
+    request_id: str
+    approval: ApprovalItem
+    actions: list[ApprovalActionItem] = Field(default_factory=list)
+
+
+class KnowledgeDocumentListItem(BaseModel):
+    document_id: UUID
+    external_document_id: str
+    title: str
+    status: str
+    source_uri: str | None = None
+    visibility: str
+    created_at: Any = None
+    updated_at: Any = None
+
+
+class KnowledgeDocumentListResponse(BaseModel):
+    request_id: str
+    documents: list[KnowledgeDocumentListItem] = Field(default_factory=list)
+
+
+class KnowledgeDeleteResponse(BaseModel):
+    request_id: str
+    document_id: UUID
+    status: str
+    vector_indexed: bool
+
+
+class KnowledgeReindexResponse(BaseModel):
+    request_id: str
+    document_count: int
+    chunk_count: int
+    vector_indexed: bool
+
+
 __all__ = [
+    "ApprovalActionItem",
+    "ApprovalDetailResponse",
     "ApprovalActionRequest",
+    "ApprovalItem",
+    "ApprovalListResponse",
+    "ConversationCreateRequest",
+    "ConversationDetailResponse",
+    "ConversationItem",
+    "ConversationListResponse",
+    "ConversationMessageCreateRequest",
+    "ConversationMessageItem",
     "CustomerConsultationRequest",
     "CustomerConsultationResponse",
     "ErrorPayload",
@@ -344,7 +522,11 @@ __all__ = [
     "EvaluationRunResponse",
     "HealthResponse",
     "KnowledgeDocumentResponse",
+    "KnowledgeDeleteResponse",
+    "KnowledgeDocumentListItem",
+    "KnowledgeDocumentListResponse",
     "KnowledgeIngestResponse",
+    "KnowledgeReindexResponse",
     "KnowledgeSearchResponse",
     "RefundCreateRequest",
     "RefundResponse",
@@ -356,7 +538,13 @@ __all__ = [
     "RuntimeTraceItem",
     "RuntimeTraceListResponse",
     "ResponseReviewSummary",
+    "TicketDetailResponse",
+    "TicketEventItem",
     "TicketCreateRequest",
+    "TicketListItem",
+    "TicketListResponse",
+    "TicketMessageItem",
+    "TicketPatchRequest",
     "TicketResponse",
     "WorkflowStatusResponse",
 ]

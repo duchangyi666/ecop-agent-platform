@@ -8,12 +8,13 @@ from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from backend.api.schemas import ErrorResponse, HealthResponse
 from backend.api.routes.auth import router as auth_router
 from backend.api.routes.approvals import router as approvals_router
+from backend.api.routes.conversations import router as conversations_router
 from backend.api.routes.customer_service import router as customer_service_router
 from backend.api.routes.evaluations import router as evaluations_router
 from backend.api.routes.knowledge import router as knowledge_router
@@ -23,6 +24,7 @@ from backend.api.routes.tickets import router as tickets_router
 from backend.domain.common import DomainError
 from backend.llm.factory import create_model_gateway
 from backend.llm.gateway import ModelGateway
+from backend.observability.metrics import create_metrics_state, render_prometheus_metrics
 from backend.rag.vector_store import KnowledgeVectorStore, create_knowledge_vector_store
 
 logger = logging.getLogger(__name__)
@@ -60,16 +62,31 @@ def create_app(
 ) -> FastAPI:
     app = FastAPI(title="Enterprise Customer Operations Platform", version="0.1.0", lifespan=lifespan)
     app.state.model_gateway = model_gateway or create_model_gateway()
+    app.state.metrics = create_metrics_state()
     if knowledge_vector_store is _UNSET:
         knowledge_vector_store = create_knowledge_vector_store()
     app.state.knowledge_vector_store = knowledge_vector_store
+
+    @app.middleware("http")
+    async def observe_http_requests(request: Request, call_next):
+        response = await call_next(request)
+        app.state.metrics["requests"][(request.method, request.url.path, response.status_code)] += 1
+        return response
 
     @app.get("/healthz", response_model=HealthResponse)
     async def healthz() -> HealthResponse:
         return HealthResponse(status="ok")
 
+    @app.get("/metrics", include_in_schema=False)
+    async def metrics() -> Response:
+        return Response(
+            content=render_prometheus_metrics(app.state.metrics),
+            media_type="text/plain; version=0.0.4; charset=utf-8",
+        )
+
     app.include_router(refunds_router)
     app.include_router(approvals_router)
+    app.include_router(conversations_router)
     app.include_router(customer_service_router)
     app.include_router(tickets_router)
     app.include_router(knowledge_router)
