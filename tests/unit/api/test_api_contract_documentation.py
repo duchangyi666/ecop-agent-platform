@@ -33,3 +33,4 @@ def test_readme_documents_model_gateway_secret_and_offline_boundaries() -> None:
     assert "customer-consultations/stream" in readme
     assert "JWT_SECRET" in readme
     assert "正式 OAuth/SSO" in readme
+    assert "本地前端控制台" in readme

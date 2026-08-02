@@ -114,6 +114,16 @@ Token 只包含租户、用户、角色类型、签发时间和过期时间，�
 
 SSE 不推送模型 Token、思维链、系统 Prompt、Key 或知识原文；断流时取消当前工作流任务。
 
+## 本地前端控制台
+
+FastAPI 会直接托管 `frontend/` 静态控制台，启动后端后访问：
+
+```text
+http://localhost:8000/
+```
+
+控制台提供本地演示所需的最小交互：填写租户/用户 UUID 获取 JWT Token、检索当前租户知识文档、发送客户咨询并展示 SSE 进度事件。它不包含完整 Customer Portal、Support Workspace 或 Admin Console，也不是生产级 Next.js 前端。
+
 启动项目专用 Milvus 栈：
 
 ```powershell
@@ -162,7 +172,7 @@ $env:DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 $env:DEEPSEEK_MODEL = "deepseek-v4-flash"
 ```
 
-当前阶段只完成模型网关、结构化回复、输出安全边界、RAG 向量检索基础、SSE 进度事件和本地 JWT 认证，尚未接入正式 OAuth/SSO 或第三方支付。模型不能直接执行数据库写入和业务工具。
+当前阶段只完成模型网关、结构化回复、输出安全边界、RAG 向量检索基础、SSE 进度事件、本地 JWT 认证和本地静态控制台，尚未接入正式 OAuth/SSO、生产级 Next.js 前端或第三方支付。模型不能直接执行数据库写入和业务工具。
 
 为开发用户授予退款权限：
 
@@ -184,6 +194,7 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 - `backend/database/repositories`：租户作用域 Repository
 - `backend/database/unit_of_work.py`：事务边界与 Repository 组合
 - `backend/rag`：Embedding、文本分片、Milvus 向量存储和知识摄取服务
+- `frontend`：由 FastAPI 静态托管的本地演示控制台
 - `alembic/versions`：数据库迁移链
 - `scripts/verify_database.py`：数据库结构和迁移头验收
 - `docs/architecture`：中文领域模型、数据库、事务、Guard、多智能体工作流和退款审批闭环文档

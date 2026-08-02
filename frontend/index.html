@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CloudDesk Console</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>CloudDesk 客户运营控制台</h1>
+        <p class="subtitle">Enterprise Customer Operations</p>
+      </div>
+      <div class="connection">
+        <span id="statusDot" class="dot"></span>
+        <span id="statusText">未连接</span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel">
+        <div class="panel-head">
+          <h2>身份</h2>
+        </div>
+        <label class="field">
+          <span>租户 UUID</span>
+          <input id="tenantId" autocomplete="off" placeholder="00000000-0000-0000-0000-000000000000" />
+        </label>
+        <label class="field">
+          <span>用户 UUID</span>
+          <input id="userId" autocomplete="off" placeholder="00000000-0000-0000-0000-000000000000" />
+        </label>
+        <div class="actions">
+          <button id="tokenBtn" class="primary" type="button">获取 Token</button>
+        </div>
+        <pre id="tokenOutput" class="output empty">暂无 Token</pre>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>知识检索</h2>
+        </div>
+        <label class="field">
+          <span>查询词</span>
+          <input id="knowledgeQuery" autocomplete="off" placeholder="退款政策" />
+        </label>
+        <div class="actions">
+          <button id="knowledgeBtn" class="primary" type="button">检索</button>
+        </div>
+        <div id="knowledgeResults" class="list empty">暂无结果</div>
+      </section>
+
+      <section class="panel chat-panel">
+        <div class="panel-head">
+          <h2>客户咨询</h2>
+        </div>
+        <label class="field">
+          <span>消息</span>
+          <textarea id="message" rows="4">客户咨询退款政策</textarea>
+        </label>
+        <div class="actions">
+          <button id="askBtn" class="primary" type="button">发送 SSE 咨询</button>
+        </div>
+        <div id="events" class="event-log empty">暂无事件</div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

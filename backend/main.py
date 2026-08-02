@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import logging
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from backend.api.schemas import ErrorResponse, HealthResponse
 from backend.api.routes.auth import router as auth_router
@@ -23,6 +25,7 @@ from backend.rag.vector_store import KnowledgeVectorStore, create_knowledge_vect
 
 logger = logging.getLogger(__name__)
 _UNSET = object()
+FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
 
 
 def _request_id(request: Request) -> str:
@@ -69,6 +72,9 @@ def create_app(
     app.include_router(tickets_router)
     app.include_router(knowledge_router)
     app.include_router(auth_router)
+
+    if FRONTEND_DIR.is_dir():
+        app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
 
     @app.exception_handler(HTTPException)
     async def handle_http_exception(request: Request, exc: HTTPException) -> JSONResponse:
