@@ -13,7 +13,14 @@ from sqlalchemy.pool import NullPool
 from backend.database.base import TenantScope
 from backend.database.base import Base
 from backend.database.models.billing import Customer, Invoice, Payment, Refund
-from backend.database.models.governance import RuntimeSpan, RuntimeTrace, ToolExecution, WorkflowCheckpoint
+from backend.database.models.governance import (
+    Document,
+    DocumentVersion,
+    RuntimeSpan,
+    RuntimeTrace,
+    ToolExecution,
+    WorkflowCheckpoint,
+)
 from backend.database.models.identity import Permission, Role, Tenant, User, UserRole
 from backend.database.models.support import (
     ApprovalAction,
@@ -68,6 +75,8 @@ async def _cleanup(factory: async_sessionmaker[AsyncSession], tenant_id: UUID) -
             TicketEvent,
             TicketAssignment,
             Ticket,
+            DocumentVersion,
+            Document,
             Refund,
             Payment,
             Invoice,

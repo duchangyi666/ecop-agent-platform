@@ -8,6 +8,7 @@ from backend.database.base import TenantScope
 from backend.database.repositories.billing import BillingRepository
 from backend.database.repositories.governance import GovernanceRepository
 from backend.database.repositories.identity import IdentityRepository
+from backend.database.repositories.knowledge import KnowledgeRepository
 from backend.database.repositories.support import SupportRepository
 
 
@@ -26,6 +27,7 @@ class UnitOfWork:
         self.billing = BillingRepository(self.session)
         self.support = SupportRepository(self.session)
         self.governance = GovernanceRepository(self.session)
+        self.knowledge = KnowledgeRepository(self.session)
 
     async def __aenter__(self) -> "UnitOfWork":
         return self
