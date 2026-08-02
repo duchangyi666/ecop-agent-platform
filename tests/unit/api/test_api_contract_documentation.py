@@ -31,4 +31,5 @@ def test_readme_documents_model_gateway_secret_and_offline_boundaries() -> None:
     assert "knowledge.ingest" in readme
     assert "knowledge_evidence_count" in readme
     assert "customer-consultations/stream" in readme
-    assert "尚未接入正式身份认证或第三方支付" in readme
+    assert "JWT_SECRET" in readme
+    assert "正式 OAuth/SSO" in readme

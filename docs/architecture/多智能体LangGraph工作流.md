@@ -100,6 +100,10 @@ Guard 终止时不进入 Supervisor、专属 Agent 或业务工具。退款应�
 
 HTTP 合同已接入 `POST /api/v1/tickets` 和 `GET /api/v1/knowledge/search`；路由仍复用对应应用服务，不直接让模型执行工单写入或知识检索。
 
+## 6.4 本地 JWT 认证边界
+
+`POST /api/v1/auth/tokens` 校验租户内活动用户后签发 HS256 签名 Token，业务接口优先读取 `Authorization: Bearer <token>`，未传 Token 时保留开发 Header 降级。Token 只包含租户、用户、角色类型、签发时间和过期时间，不包含密钥或敏感数据；未配置 `JWT_SECRET` 时 Token 接口返回 503，业务接口仍可继续使用本地 Header。该边界不等同于真实 OAuth、SSO 或生产身份提供商。
+
 ## 7. 当前实际版本
 
 版本以本机 `E:\anaconda3\envs\edu_agent` 环境实际安装结果为准，当前验收记录为：
@@ -122,4 +126,4 @@ HTTP 合同已接入 `POST /api/v1/tickets` 和 `GET /api/v1/knowledge/search`�
 
 ## 8. 当前边界
 
-当前实现已经完成多 Agent 图结构、专属子图、客服结构化模型网关、输出安全过滤、工具白名单、退款策略、工单工具与租户事务服务、RAG 向量知识库、RRF 混合检索、客服证据注入、SSE 进度事件、数据库退款申请、Checkpoint、审批恢复、应用级 Gateway Factory、客户咨询 API、FastAPI 退款/审批接口和统一运行时入口。当前 `run_refund_workflow`、`TicketWorkflowService` 和 `KnowledgeWorkflowService` 均通过数据库 Unit of Work 处理本地业务状态；HTTP 层使用开发环境租户 Header，正式 JWT/OAuth 尚未接入。外部支付适配器仍未接入，因此“退款申请已持久化”不等于“第三方退款已完成”。BGE-M3 默认加载、Reranker 和真实模型 API 冒烟调用不属于本阶段自动验收范围。
+当前实现已经完成多 Agent 图结构、专属子图、客服结构化模型网关、输出安全过滤、工具白名单、退款策略、工单工具与租户事务服务、RAG 向量知识库、RRF 混合检索、客服证据注入、SSE 进度事件、本地 JWT 认证、数据库退款申请、Checkpoint、审批恢复、应用级 Gateway Factory、客户咨询 API、FastAPI 退款/审批接口和统一运行时入口。当前 `run_refund_workflow`、`TicketWorkflowService` 和 `KnowledgeWorkflowService` 均通过数据库 Unit of Work 处理本地业务状态；HTTP 层支持本地 JWT Bearer Token 和开发 Header 降级，正式 OAuth/SSO 尚未接入。外部支付适配器仍未接入，因此“退款申请已持久化”不等于“第三方退款已完成”。BGE-M3 默认加载、Reranker 和真实模型 API 冒烟调用不属于本阶段自动验收范围。

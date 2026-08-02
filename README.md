@@ -56,6 +56,7 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 - `GET /healthz`：应用存活检查；
 - `POST /api/v1/customer-consultations`：调用主图生成客户咨询安全回复；
 - `POST /api/v1/customer-consultations/stream`：以 SSE 推送客户咨询开始、证据检索和完成事件；
+- `POST /api/v1/auth/tokens`：为当前租户活动用户签发本地 JWT Bearer Token；
 - `POST /api/v1/tickets`：创建租户作用域工单；
 - `GET /api/v1/knowledge/search`：检索当前租户 active 知识文档；
 - `POST /api/v1/knowledge/documents`：摄取知识文档、分片并写入 Milvus 向量索引；
@@ -64,6 +65,25 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 - `GET /api/v1/workflows/{thread_id}`：按租户查询脱敏工作流状态。
 
 业务请求需要携带开发环境 Header：`X-Tenant-Id`、`X-Actor-Id`、`X-Actor-Type`，可选 `X-Request-Id`。这些 Header 只用于当前本地开发和集成测试，不等同于生产 JWT/OAuth 认证。客户咨询需要 `customer.consult`，工单创建需要 `ticket.create`，知识检索需要 `knowledge.search`，知识摄取需要 `knowledge.ingest`，退款接口需要 `refund.request` / `refund.approve`。接口详细合同见 [`docs/superpowers/specs/2026-08-02-退款业务HTTP API设计.md`](docs/superpowers/specs/2026-08-02-退款业务HTTP%20API设计.md) 和 [`docs/superpowers/specs/2026-08-02-客户咨询API与模型网关工厂设计.md`](docs/superpowers/specs/2026-08-02-客户咨询API与模型网关工厂设计.md)。
+
+## 本地 JWT 认证
+
+设置 `JWT_SECRET` 后可启用本地签名 Token；业务接口同时接受 `Authorization: Bearer <token>`，未传 Token 时仍允许开发 Header 降级。
+
+```powershell
+$env:JWT_SECRET = "<至少32字节的本地密钥>"
+$env:JWT_TOKEN_EXPIRES_MINUTES = "60"
+```
+
+获取本地开发 Token：
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/v1/auth/tokens `
+  -ContentType "application/json" `
+  -Body '{"tenant_id":"<租户UUID>","user_id":"<用户UUID>","actor_type":"user"}'
+```
+
+Token 只包含租户、用户、角色类型、签发时间和过期时间，不包含密钥或敏感数据；过期后返回 HTTP 401。这是本地 JWT 认证边界，不代表已接入真实 OAuth、SSO 或生产身份提供商。
 
 ## Guard 与安全边界
 
@@ -142,7 +162,7 @@ $env:DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 $env:DEEPSEEK_MODEL = "deepseek-v4-flash"
 ```
 
-当前阶段只完成模型网关、结构化回复、输出安全边界、RAG 向量检索基础和 SSE 进度事件，尚未接入正式身份认证或第三方支付。模型不能直接执行数据库写入和业务工具。
+当前阶段只完成模型网关、结构化回复、输出安全边界、RAG 向量检索基础、SSE 进度事件和本地 JWT 认证，尚未接入正式 OAuth/SSO 或第三方支付。模型不能直接执行数据库写入和业务工具。
 
 为开发用户授予退款权限：
 

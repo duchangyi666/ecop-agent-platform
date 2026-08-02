@@ -7,6 +7,8 @@ from uuid import UUID, uuid4
 from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from backend.auth.config import get_auth_settings
+from backend.auth.tokens import InvalidToken, decode_access_token
 from backend.config import get_settings
 from backend.database.base import TenantScope
 from backend.database.session import get_session_factory
@@ -28,6 +30,13 @@ def _invalid_context(message: str) -> HTTPException:
     )
 
 
+def _invalid_token() -> HTTPException:
+    return HTTPException(
+        status_code=401,
+        detail={"code": "invalid_token", "message": "invalid or expired access token"},
+    )
+
+
 def _parse_uuid(value: str | None, field_name: str) -> UUID:
     if not value:
         raise _invalid_context(f"{field_name} is required")
@@ -42,7 +51,25 @@ def get_request_context(
     x_actor_id: Annotated[str | None, Header(alias="X-Actor-Id")] = None,
     x_actor_type: Annotated[str | None, Header(alias="X-Actor-Type")] = None,
     x_request_id: Annotated[str | None, Header(alias="X-Request-Id")] = None,
+    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
 ) -> RequestContext:
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+        try:
+            claims = decode_access_token(
+                token,
+                secret=get_auth_settings().jwt_secret,
+            )
+        except InvalidToken as exc:
+            raise _invalid_token() from exc
+        return RequestContext(
+            scope=TenantScope(
+                tenant_id=claims.tenant_id,
+                actor_id=claims.user_id,
+                actor_type=claims.actor_type,
+            ),
+            request_id=x_request_id or f"request-{uuid4().hex}",
+        )
     if not x_actor_type or not x_actor_type.strip():
         raise _invalid_context("X-Actor-Type is required")
     return RequestContext(
