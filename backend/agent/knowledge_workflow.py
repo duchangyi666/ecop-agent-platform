@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.agent.graphs.main_graph import build_main_graph
+from backend.agent.guards import InputSecurityGuard
 from backend.agent.state import AgentState
 from backend.agent.tools.knowledge import (
     KnowledgeDocumentResult,
@@ -62,6 +63,21 @@ class KnowledgeWorkflowService:
             )
             graph_result = await build_main_graph().compile().ainvoke(request.state)
             terminal = self._guard_terminal_outcome(graph_result)
+            query_guard = InputSecurityGuard().evaluate(request.query)
+            if query_guard.status == "block":
+                terminal = (
+                    "blocked",
+                    "finish",
+                    "当前请求未通过安全检查，已阻止知识检索。",
+                    "knowledge_security_blocked",
+                )
+            elif query_guard.status == "human_handoff":
+                terminal = (
+                    "human_handoff",
+                    "human_handoff",
+                    "该操作需要人工安全审核。",
+                    "knowledge_security_handoff",
+                )
             if terminal is not None:
                 status, next_action, final_response, audit_action = terminal
                 audit = await uow.support.append_audit_log(

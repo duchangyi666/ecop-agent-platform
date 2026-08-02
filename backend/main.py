@@ -11,7 +11,9 @@ from fastapi.responses import JSONResponse
 from backend.api.schemas import ErrorResponse, HealthResponse
 from backend.api.routes.approvals import router as approvals_router
 from backend.api.routes.customer_service import router as customer_service_router
+from backend.api.routes.knowledge import router as knowledge_router
 from backend.api.routes.refunds import router as refunds_router
+from backend.api.routes.tickets import router as tickets_router
 from backend.domain.common import DomainError
 from backend.llm.factory import create_model_gateway
 from backend.llm.gateway import ModelGateway
@@ -50,6 +52,8 @@ def create_app(model_gateway: ModelGateway | None = None) -> FastAPI:
     app.include_router(refunds_router)
     app.include_router(approvals_router)
     app.include_router(customer_service_router)
+    app.include_router(tickets_router)
+    app.include_router(knowledge_router)
 
     @app.exception_handler(HTTPException)
     async def handle_http_exception(request: Request, exc: HTTPException) -> JSONResponse:

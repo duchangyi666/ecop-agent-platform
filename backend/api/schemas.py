@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -80,6 +80,86 @@ class CustomerConsultationResponse(BaseModel):
         )
 
 
+class TicketCreateRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    thread_id: str = Field(min_length=1, max_length=120)
+    customer_id: UUID
+    subject: str = Field(min_length=1, max_length=255)
+    priority: Literal["low", "medium", "high", "urgent"]
+    description_summary: str | None = Field(default=None, max_length=2000)
+    message: str | None = Field(default=None, max_length=2000)
+
+
+class TicketResponse(BaseModel):
+    request_id: str
+    thread_id: str
+    status: str
+    next_action: str | None = None
+    final_response: str | None = None
+    ticket_id: UUID | None = None
+    ticket_status: str | None = None
+    trace_id: UUID | None = None
+    audit_event_ids: list[UUID] = Field(default_factory=list)
+
+    @classmethod
+    def from_result(cls, *, request_id: str, result: Any) -> "TicketResponse":
+        return cls(
+            request_id=request_id,
+            thread_id=result.thread_id,
+            status=result.status,
+            next_action=result.next_action,
+            final_response=result.final_response,
+            ticket_id=result.ticket_id,
+            ticket_status=result.ticket_status,
+            trace_id=result.trace_id,
+            audit_event_ids=list(result.audit_event_ids),
+        )
+
+
+class KnowledgeDocumentResponse(BaseModel):
+    document_id: UUID
+    title: str
+    external_document_id: str
+    source_uri: str | None
+    status: str
+    visibility: str
+
+
+class KnowledgeSearchResponse(BaseModel):
+    request_id: str
+    thread_id: str
+    status: str
+    next_action: str | None = None
+    final_response: str | None = None
+    results: list[KnowledgeDocumentResponse] = Field(default_factory=list)
+    trace_id: UUID | None = None
+    audit_event_ids: list[UUID] = Field(default_factory=list)
+
+    @classmethod
+    def from_result(cls, *, request_id: str, result: Any) -> "KnowledgeSearchResponse":
+        return cls(
+            request_id=request_id,
+            thread_id=result.thread_id,
+            status=result.status,
+            next_action=result.next_action,
+            final_response=result.final_response,
+            results=[
+                KnowledgeDocumentResponse(
+                    document_id=item.document_id,
+                    title=item.title,
+                    external_document_id=item.external_document_id,
+                    source_uri=item.source_uri,
+                    status=item.status,
+                    visibility=item.visibility,
+                )
+                for item in result.results
+            ],
+            trace_id=result.trace_id,
+            audit_event_ids=list(result.audit_event_ids),
+        )
+
+
 class RefundResponse(BaseModel):
     request_id: str
     thread_id: str
@@ -136,8 +216,12 @@ __all__ = [
     "ErrorPayload",
     "ErrorResponse",
     "HealthResponse",
+    "KnowledgeDocumentResponse",
+    "KnowledgeSearchResponse",
     "RefundCreateRequest",
     "RefundResponse",
     "ResponseReviewSummary",
+    "TicketCreateRequest",
+    "TicketResponse",
     "WorkflowStatusResponse",
 ]

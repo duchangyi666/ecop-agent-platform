@@ -17,11 +17,19 @@ if str(PROJECT_ROOT) not in sys.path:
 from backend.config import get_settings
 from backend.database.models.identity import Permission, Role, User, UserRole
 
-SUPPORTED_PERMISSIONS = {"refund.request", "refund.approve", "customer.consult"}
+SUPPORTED_PERMISSIONS = {
+    "refund.request",
+    "refund.approve",
+    "customer.consult",
+    "ticket.create",
+    "knowledge.search",
+}
 ROLE_CODES = {
     "refund.request": "demo_refund_requester",
     "refund.approve": "demo_refund_approver",
     "customer.consult": "demo_customer_service_consultant",
+    "ticket.create": "demo_ticket_creator",
+    "knowledge.search": "demo_knowledge_searcher",
 }
 
 

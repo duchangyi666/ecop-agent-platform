@@ -97,6 +97,8 @@ Guard 终止时不进入 Supervisor、专属 Agent 或业务工具。退款应�
 
 当前知识检索是确定性 SQL 检索，不包含向量召回、RAG、Milvus、Embedding 或外部知识服务。检索日志不保存原始查询词，只保存结果数量和文档 ID 摘要。
 
+HTTP 合同已接入 `POST /api/v1/tickets` 和 `GET /api/v1/knowledge/search`；路由仍复用对应应用服务，不直接让模型执行工单写入或知识检索。
+
 ## 7. 当前实际版本
 
 版本以本机 `E:\anaconda3\envs\edu_agent` 环境实际安装结果为准，当前验收记录为：

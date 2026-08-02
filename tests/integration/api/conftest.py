@@ -100,6 +100,18 @@ async def customer_consult_api_client(api_client, grant_permission, tenant_a_use
 
 
 @pytest_asyncio.fixture
+async def ticket_api_client(api_client, grant_permission, tenant_a_user):
+    await grant_permission(tenant_a_user.id, "ticket.create")
+    return api_client
+
+
+@pytest_asyncio.fixture
+async def knowledge_api_client(api_client, grant_permission, tenant_a_user):
+    await grant_permission(tenant_a_user.id, "knowledge.search")
+    return api_client
+
+
+@pytest_asyncio.fixture
 async def request_only_api_client(api_client, grant_permission, tenant_a_user):
     await grant_permission(tenant_a_user.id, "refund.request")
     return api_client
