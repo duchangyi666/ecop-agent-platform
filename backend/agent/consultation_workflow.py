@@ -15,6 +15,7 @@ from backend.database.models.governance import MemoryRecord
 from backend.database.unit_of_work import UnitOfWork
 from backend.llm.contracts import ModelUsage
 from backend.llm.gateway import ModelGateway
+from backend.llm.router import ModelRouter, ModelTask, create_default_model_router
 from backend.llm.safety import ResponseSafetyDecision
 from backend.memory.service import MemoryService
 from backend.rag.retriever import ConsultationKnowledgeRetriever
@@ -143,12 +144,14 @@ class CustomerConsultationService:
         knowledge_retriever: ConsultationKnowledgeRetriever | None = None,
         event_sink: EventSink | None = None,
         memory_service: MemoryService | None = None,
+        model_router: ModelRouter | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.model_gateway = model_gateway
         self.knowledge_retriever = knowledge_retriever
         self.event_sink = event_sink
         self.memory_service = memory_service
+        self.model_router = model_router or create_default_model_router()
 
     async def run(
         self,
@@ -212,6 +215,7 @@ class CustomerConsultationService:
             return result
 
         scope = request.state.tenant_scope
+        route = self.model_router.resolve(ModelTask.CUSTOMER_SERVICE)
         async with UnitOfWork(self.session_factory, scope=scope) as uow:
             trace = await uow.governance.create_runtime_trace(
                 scope=scope,
@@ -249,6 +253,8 @@ class CustomerConsultationService:
                     "model_error_code": result.model_error_code,
                     "knowledge_evidence_count": len(evidence),
                     "memory_candidate_count": len(memory_records),
+                    "model_route_provider": route.provider,
+                    "model_route_model": route.model,
                 },
             )
             await uow.governance.complete_runtime_trace(

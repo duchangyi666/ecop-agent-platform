@@ -153,6 +153,19 @@ $env:PYTHONNOUSERSITE = "1"
 
 客户咨询响应中的 `memory_candidate_count` 只报告本次写入的候选数量，不返回记忆正文。
 
+## 模型路由、Prompt Registry 与上下文预算
+
+`ModelRouter` 按任务解析模型路由，默认从环境变量读取：
+
+```powershell
+$env:MODEL_ROUTE_MODEL = "deepseek-v4-flash"
+$env:MODEL_ROUTE_PROVIDER = "deepseek"
+```
+
+`PromptRegistry` 保存版本化 Prompt 模板，当前内置客服 Prompt；`ContextBudget` 在模型调用前对知识证据和系统 Prompt 做本地字符预算限制，防止无限拼接上下文。
+
+当前路由和预算主要作用于客户咨询链路；完整 Model Router 调用、Prompt 管理 API 和 DB 持久化 Prompt 版本仍属于后续阶段。
+
 启动项目专用 Milvus 栈：
 
 ```powershell
@@ -231,6 +244,7 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 - `backend/rag`：Embedding、文本分片、Milvus 向量存储和知识摄取服务
 - `backend/evaluation`：检索评测指标和评测 Runner
 - `backend/memory`：确定性记忆提取、写入策略和候选记忆服务
+- `backend/llm`：模型网关、结构化回复、安全过滤、模型路由、Prompt Registry 和上下文预算
 - `frontend`：由 FastAPI 静态托管的本地演示控制台
 - `alembic/versions`：数据库迁移链
 - `scripts/verify_database.py`：数据库结构和迁移头验收
