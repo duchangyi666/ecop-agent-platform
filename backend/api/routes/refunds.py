@@ -44,15 +44,15 @@ async def create_refund(
     elif result.status in {"rejected", "blocked", "out_of_scope"}:
         if result.status == "blocked":
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail={"code": "security_blocked", "message": result.state.get("reason", "request blocked")},
             )
         if result.status == "out_of_scope":
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail={"code": "out_of_scope", "message": result.state.get("reason", "request out of scope")},
             )
-        response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+        response.status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
     return RefundResponse.from_result(request_id=context.request_id, result=result)
 
 
