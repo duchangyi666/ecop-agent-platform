@@ -239,12 +239,54 @@ class HealthResponse(BaseModel):
     status: str
 
 
+class EvaluationRunRequest(BaseModel):
+    dataset_code: str = Field(min_length=1, max_length=120)
+    limit: int = Field(default=5, ge=1, le=20)
+
+
+class EvaluationRunItem(BaseModel):
+    run_id: UUID
+    dataset_id: UUID
+    status: str
+    metrics: dict[str, Any]
+    started_at: Any = None
+    finished_at: Any = None
+
+
+class EvaluationRunListResponse(BaseModel):
+    request_id: str
+    runs: list[EvaluationRunItem] = Field(default_factory=list)
+
+
+class EvaluationRunResponse(BaseModel):
+    request_id: str
+    run_id: UUID
+    dataset_code: str
+    case_count: int
+    metrics: dict[str, Any]
+    status: str = "completed"
+
+    @classmethod
+    def from_result(cls, *, request_id: str, result: Any) -> "EvaluationRunResponse":
+        return cls(
+            request_id=request_id,
+            run_id=result.run_id,
+            dataset_code=result.dataset_code,
+            case_count=result.case_count,
+            metrics=result.metrics,
+        )
+
+
 __all__ = [
     "ApprovalActionRequest",
     "CustomerConsultationRequest",
     "CustomerConsultationResponse",
     "ErrorPayload",
     "ErrorResponse",
+    "EvaluationRunItem",
+    "EvaluationRunListResponse",
+    "EvaluationRunRequest",
+    "EvaluationRunResponse",
     "HealthResponse",
     "KnowledgeDocumentResponse",
     "KnowledgeIngestResponse",

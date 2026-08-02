@@ -108,6 +108,10 @@ HTTP 合同已接入 `POST /api/v1/tickets` 和 `GET /api/v1/knowledge/search`�
 
 FastAPI 静态托管 `frontend/`，根路径提供本地演示控制台：可获取 JWT Token、检索当前租户知识文档、发送客户咨询并展示 SSE 进度事件。当前是静态单页控制台，不包含完整 Customer Portal、Support Workspace 或 Admin Console，也不是生产级 Next.js 前端。
 
+## 6.6 检索评测系统
+
+`EvaluationRunner` 读取当前租户 `evaluation_datasets` 和 `evaluation_cases`，对每个用例调用 `ConsultationKnowledgeRetriever`，计算 `Recall@K`、`Precision@K`、`MRR` 和 `NDCG@K`。单用例结果写入 `evaluation_results`，运行汇总写入 `evaluation_runs.metrics`；`POST /api/v1/evaluations/run` 执行评测，`GET /api/v1/evaluations` 查看历史。当前评测覆盖检索链路，分类、决策、工具和回复评测仍未实现。
+
 ## 7. 当前实际版本
 
 版本以本机 `E:\anaconda3\envs\edu_agent` 环境实际安装结果为准，当前验收记录为：
@@ -130,4 +134,4 @@ FastAPI 静态托管 `frontend/`，根路径提供本地演示控制台：可获
 
 ## 8. 当前边界
 
-当前实现已经完成多 Agent 图结构、专属子图、客服结构化模型网关、输出安全过滤、工具白名单、退款策略、工单工具与租户事务服务、RAG 向量知识库、RRF 混合检索、客服证据注入、SSE 进度事件、本地 JWT 认证、本地前端控制台、数据库退款申请、Checkpoint、审批恢复、应用级 Gateway Factory、客户咨询 API、FastAPI 退款/审批接口和统一运行时入口。当前 `run_refund_workflow`、`TicketWorkflowService` 和 `KnowledgeWorkflowService` 均通过数据库 Unit of Work 处理本地业务状态；HTTP 层支持本地 JWT Bearer Token 和开发 Header 降级，正式 OAuth/SSO 尚未接入。生产级 Next.js 前端、外部支付适配器仍未接入，因此“退款申请已持久化”不等于“第三方退款已完成”。BGE-M3 默认加载、Reranker 和真实模型 API 冒烟调用不属于本阶段自动验收范围。
+当前实现已经完成多 Agent 图结构、专属子图、客服结构化模型网关、输出安全过滤、工具白名单、退款策略、工单工具与租户事务服务、RAG 向量知识库、RRF 混合检索、客服证据注入、SSE 进度事件、本地 JWT 认证、本地前端控制台、检索评测、数据库退款申请、Checkpoint、审批恢复、应用级 Gateway Factory、客户咨询 API、FastAPI 退款/审批接口和统一运行时入口。当前 `run_refund_workflow`、`TicketWorkflowService` 和 `KnowledgeWorkflowService` 均通过数据库 Unit of Work 处理本地业务状态；HTTP 层支持本地 JWT Bearer Token 和开发 Header 降级，正式 OAuth/SSO 尚未接入。生产级 Next.js 前端、外部支付适配器仍未接入，因此“退款申请已持久化”不等于“第三方退款已完成”。BGE-M3 默认加载、Reranker、完整评测 Dashboard 和真实模型 API 冒烟调用不属于本阶段自动验收范围。

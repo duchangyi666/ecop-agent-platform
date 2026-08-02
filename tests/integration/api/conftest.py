@@ -119,6 +119,13 @@ async def knowledge_ingest_api_client(api_client, grant_permission, tenant_a_use
 
 
 @pytest_asyncio.fixture
+async def evaluation_api_client(api_client, grant_permission, tenant_a_user):
+    await grant_permission(tenant_a_user.id, "evaluation.read")
+    await grant_permission(tenant_a_user.id, "evaluation.run")
+    return api_client
+
+
+@pytest_asyncio.fixture
 async def request_only_api_client(api_client, grant_permission, tenant_a_user):
     await grant_permission(tenant_a_user.id, "refund.request")
     return api_client

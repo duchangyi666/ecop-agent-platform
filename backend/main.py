@@ -15,6 +15,7 @@ from backend.api.schemas import ErrorResponse, HealthResponse
 from backend.api.routes.auth import router as auth_router
 from backend.api.routes.approvals import router as approvals_router
 from backend.api.routes.customer_service import router as customer_service_router
+from backend.api.routes.evaluations import router as evaluations_router
 from backend.api.routes.knowledge import router as knowledge_router
 from backend.api.routes.refunds import router as refunds_router
 from backend.api.routes.tickets import router as tickets_router
@@ -72,6 +73,7 @@ def create_app(
     app.include_router(tickets_router)
     app.include_router(knowledge_router)
     app.include_router(auth_router)
+    app.include_router(evaluations_router)
 
     if FRONTEND_DIR.is_dir():
         app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")

@@ -11,4 +11,6 @@ def test_seed_demo_identity_exposes_explicit_permission_codes() -> None:
         "ticket.create",
         "knowledge.search",
         "knowledge.ingest",
+        "evaluation.read",
+        "evaluation.run",
     }

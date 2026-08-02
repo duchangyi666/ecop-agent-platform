@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.database.base import TenantScope
 from backend.database.repositories.billing import BillingRepository
+from backend.database.repositories.evaluation import EvaluationRepository
 from backend.database.repositories.governance import GovernanceRepository
 from backend.database.repositories.identity import IdentityRepository
 from backend.database.repositories.knowledge import KnowledgeRepository
@@ -28,6 +29,7 @@ class UnitOfWork:
         self.support = SupportRepository(self.session)
         self.governance = GovernanceRepository(self.session)
         self.knowledge = KnowledgeRepository(self.session)
+        self.evaluation = EvaluationRepository(self.session)
 
     async def __aenter__(self) -> "UnitOfWork":
         return self

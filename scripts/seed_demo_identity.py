@@ -24,6 +24,8 @@ SUPPORTED_PERMISSIONS = {
     "ticket.create",
     "knowledge.search",
     "knowledge.ingest",
+    "evaluation.read",
+    "evaluation.run",
 }
 ROLE_CODES = {
     "refund.request": "demo_refund_requester",
@@ -32,6 +34,8 @@ ROLE_CODES = {
     "ticket.create": "demo_ticket_creator",
     "knowledge.search": "demo_knowledge_searcher",
     "knowledge.ingest": "demo_knowledge_ingestor",
+    "evaluation.read": "demo_evaluation_reader",
+    "evaluation.run": "demo_evaluation_runner",
 }
 
 

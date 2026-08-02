@@ -57,6 +57,8 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 - `POST /api/v1/customer-consultations`：调用主图生成客户咨询安全回复；
 - `POST /api/v1/customer-consultations/stream`：以 SSE 推送客户咨询开始、证据检索和完成事件；
 - `POST /api/v1/auth/tokens`：为当前租户活动用户签发本地 JWT Bearer Token；
+- `GET /api/v1/evaluations`：查看当前租户评测运行；
+- `POST /api/v1/evaluations/run`：运行检索评测并返回 Recall@K、MRR、NDCG；
 - `POST /api/v1/tickets`：创建租户作用域工单；
 - `GET /api/v1/knowledge/search`：检索当前租户 active 知识文档；
 - `POST /api/v1/knowledge/documents`：摄取知识文档、分片并写入 Milvus 向量索引；
@@ -64,7 +66,7 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 - `POST /api/v1/approvals/{approval_request_id}`：批准或拒绝退款审批；
 - `GET /api/v1/workflows/{thread_id}`：按租户查询脱敏工作流状态。
 
-业务请求需要携带开发环境 Header：`X-Tenant-Id`、`X-Actor-Id`、`X-Actor-Type`，可选 `X-Request-Id`。这些 Header 只用于当前本地开发和集成测试，不等同于生产 JWT/OAuth 认证。客户咨询需要 `customer.consult`，工单创建需要 `ticket.create`，知识检索需要 `knowledge.search`，知识摄取需要 `knowledge.ingest`，退款接口需要 `refund.request` / `refund.approve`。接口详细合同见 [`docs/superpowers/specs/2026-08-02-退款业务HTTP API设计.md`](docs/superpowers/specs/2026-08-02-退款业务HTTP%20API设计.md) 和 [`docs/superpowers/specs/2026-08-02-客户咨询API与模型网关工厂设计.md`](docs/superpowers/specs/2026-08-02-客户咨询API与模型网关工厂设计.md)。
+业务请求需要携带开发环境 Header：`X-Tenant-Id`、`X-Actor-Id`、`X-Actor-Type`，可选 `X-Request-Id`。这些 Header 只用于当前本地开发和集成测试，不等同于生产 JWT/OAuth 认证。客户咨询需要 `customer.consult`，工单创建需要 `ticket.create`，知识检索需要 `knowledge.search`，知识摄取需要 `knowledge.ingest`，退款接口需要 `refund.request` / `refund.approve`，评测需要 `evaluation.read` / `evaluation.run`。接口详细合同见 [`docs/superpowers/specs/2026-08-02-退款业务HTTP API设计.md`](docs/superpowers/specs/2026-08-02-退款业务HTTP%20API设计.md) 和 [`docs/superpowers/specs/2026-08-02-客户咨询API与模型网关工厂设计.md`](docs/superpowers/specs/2026-08-02-客户咨询API与模型网关工厂设计.md)。
 
 ## 本地 JWT 认证
 
@@ -124,6 +126,27 @@ http://localhost:8000/
 
 控制台提供本地演示所需的最小交互：填写租户/用户 UUID 获取 JWT Token、检索当前租户知识文档、发送客户咨询并展示 SSE 进度事件。它不包含完整 Customer Portal、Support Workspace 或 Admin Console，也不是生产级 Next.js 前端。
 
+## 评测系统
+
+`POST /api/v1/evaluations/run` 基于 `evaluation_datasets` 和 `evaluation_cases` 运行检索评测，对每个用例调用当前检索链路，并计算：
+
+- `Recall@K`
+- `Precision@K`
+- `MRR`
+- `NDCG@K`
+
+每个用例的指标写入 `evaluation_results`，运行汇总写入 `evaluation_runs.metrics`；`GET /api/v1/evaluations` 可查看当前租户评测历史。当前评测聚焦检索链路，分类、决策、工具和回复评测仍属于后续阶段。
+
+基于当前租户 active 文档生成一个简单检索评测集：
+
+```powershell
+$env:PYTHONNOUSERSITE = "1"
+& E:\anaconda3\envs\edu_agent\python.exe scripts/seed_evaluation.py `
+  --tenant-id <租户UUID> `
+  --dataset-code tenant-retrieval `
+  --name "Tenant Retrieval Dataset"
+```
+
 启动项目专用 Milvus 栈：
 
 ```powershell
@@ -182,7 +205,7 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 & E:\anaconda3\envs\edu_agent\python.exe scripts\seed_demo_identity.py `
   --tenant-id <租户UUID> `
   --user-id <用户UUID> `
-  --permissions refund.request refund.approve customer.consult ticket.create knowledge.search knowledge.ingest
+  --permissions refund.request refund.approve customer.consult ticket.create knowledge.search knowledge.ingest evaluation.read evaluation.run
 ```
 
 该脚本只允许声明的五个权限码，并且重复执行幂等；仅用于开发和测试，不替代生产认证、角色审批和密钥管理。
@@ -194,6 +217,7 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 - `backend/database/repositories`：租户作用域 Repository
 - `backend/database/unit_of_work.py`：事务边界与 Repository 组合
 - `backend/rag`：Embedding、文本分片、Milvus 向量存储和知识摄取服务
+- `backend/evaluation`：检索评测指标和评测 Runner
 - `frontend`：由 FastAPI 静态托管的本地演示控制台
 - `alembic/versions`：数据库迁移链
 - `scripts/verify_database.py`：数据库结构和迁移头验收
