@@ -71,6 +71,26 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 
 Guard 终止结果会写入同一租户的 `AuditLog`、`RuntimeTrace` 和 `WorkflowCheckpoint`。检查点和对外响应不保存或回显敏感原文。Guard 使用当前仓库已安装的确定性 Python/Pydantic 规则，不代表已经接入 LLM 安全分类器、Redis、第三方支付或正式 JWT/OAuth。
 
+## 模型网关与结构化客服回复
+
+客服子图已接入 provider-neutral 的 `ModelGateway` 契约：
+
+- `DeepSeekGateway` 使用项目实际安装的 `httpx==0.28.1` 调用 OpenAI-compatible Chat Completions；
+- `FakeModelGateway` 是默认离线实现，主图和自动测试不会读取环境变量、创建外网连接或依赖真实模型 Key；
+- 模型只能生成 Pydantic `ResponseDraft`，随后由 `ResponseSafetyFilter` 检查敏感信息、内部配置和缺少依据的业务承诺；
+- 模型异常、敏感输出和未经证据支持的业务结论会返回固定安全回复或转人工，不会触发退款、审批、工单或数据库工具；
+- `DEEPSEEK_API_KEY` 只允许从运行时环境变量读取，仓库、测试、日志和文档不保存 Key、完整 Prompt 或模型响应原文。
+
+如需在本机显式接入模型，先设置环境变量，再由调用方注入 `DeepSeekGateway(ModelGatewaySettings.from_env())`；自动回归不执行真实 API 冒烟请求：
+
+```powershell
+$env:DEEPSEEK_API_KEY = "<仅保存在本机进程环境中的新 Key>"
+$env:DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+$env:DEEPSEEK_MODEL = "deepseek-v4-flash"
+```
+
+当前阶段只完成模型网关、结构化回复和输出安全边界，尚未接入 RAG、Milvus、SSE、正式身份认证或第三方支付。模型不能直接执行数据库写入和业务工具。
+
 为开发用户授予退款权限：
 
 ```powershell

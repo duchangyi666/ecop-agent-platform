@@ -12,3 +12,15 @@ def test_readme_documents_api_entrypoint_and_dev_context() -> None:
     assert "本地退款申请" in readme
     assert "input_security_guard" in readme
     assert "业务范围 Guard" in readme
+
+
+def test_readme_documents_model_gateway_secret_and_offline_boundaries() -> None:
+    root = Path(__file__).resolve().parents[3]
+    readme = (root / "README.md").read_text(encoding="utf-8")
+
+    assert "DEEPSEEK_API_KEY" in readme
+    assert "只允许从运行时环境变量读取" in readme
+    assert "FakeModelGateway" in readme
+    assert "自动回归不执行真实 API 冒烟请求" in readme
+    assert "不保存 Key、完整 Prompt 或模型响应原文" in readme
+    assert "尚未接入 RAG、Milvus、SSE" in readme

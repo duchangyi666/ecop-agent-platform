@@ -18,15 +18,17 @@ flowchart TD
     B --> E[billing_agent]
     B --> F[ticket_agent]
     B --> G[approval_agent]
+    C --> C1[customer_service_model]
+    C1 --> C2[response_safety_filter]
+    C2 --> Z
     E --> H[policy_gate]
-    C --> Z[结束]
     D --> Z
     F --> Z
     G --> Z
     H --> Z
 ```
 
-Supervisor 只负责结构化路由，不直接执行退款、建单或审批操作。每个专属 Agent 都是独立的 LangGraph 子图，后续可以在子图内部增加模型调用、工具调用、重试和人工介入节点。
+Supervisor 只负责结构化路由，不直接执行退款、建单或审批操作。客服子图当前固定经过模型结构化回复和输出安全过滤；其他专属 Agent 仍保持独立子图边界，后续可以在各自子图内部增加受白名单约束的模型调用、工具调用、重试和人工介入节点。
 
 ## 3. 共享 State
 
@@ -37,6 +39,8 @@ Supervisor 只负责结构化路由，不直接执行退款、建单或审批操
 - `guard_decision`、`domain_decision`：输入安全和业务范围的结构化决策；
 - `supervisor_decision`、`next_action`：路由决策；
 - `specialist_result`：专属 Agent 的结构化结果；
+- `response_draft`、`final_response`、`response_review`：客服模型草稿、对外安全回复和过滤决定；
+- `model_usage`、`model_error`、调用次数及 token 累计：模型调用的最小可审计统计；回复草稿只在本次图运行状态中传递，不写入持久化日志或审计错误，Key、完整 Prompt 和供应商原文均不落盘；
 - `errors`、`trace_id`、`audit_event_ids`：错误、链路和审计关联信息。
 
 状态只在图内传递。数据库读写必须通过租户作用域 Repository 和 Unit of Work 完成，Agent 不应直接拼接 SQL 或跨租户查询。
@@ -69,7 +73,7 @@ Guard 终止时不进入 Supervisor、专属 Agent 或业务工具。退款应�
 
 高风险退款经过 `policy_gate` 后进入 `human_handoff`，运行时保存 `thread_id`、原始退款幂等键、State、状态和审计关联信息。审批恢复时按租户读取 `ApprovalRequest` 和数据库 Checkpoint，只允许 `PENDING` 审批转为 `APPROVED` 或 `REJECTED`，并复用原幂等键，不重新生成业务幂等键。批准或拒绝都会写入 `ApprovalAction`、`AuditLog` 和新的 Checkpoint 状态。
 
-`WorkflowError` 将异常转换为结构化错误；模型超时和连接异常在最多三次尝试内允许重试，未知工具状态和超过重试次数统一转人工处理。错误摘要只保存截断后的可审计信息，不保存完整敏感请求。
+`WorkflowError` 将异常转换为结构化错误；DeepSeek 网关只对配置允许的超时、传输异常和 HTTP 5xx 做有限重试，默认最多重试一次，业务工作流不因模型错误重试退款操作。未知工具状态和超过重试次数统一转人工处理。错误摘要只保存截断后的可审计信息，不保存完整敏感请求。
 
 ## 7. 当前实际版本
 
@@ -84,9 +88,13 @@ Guard 终止时不进入 Supervisor、专属 Agent 或业务工具。退款应�
 - asyncpg 0.30.0
 - Pydantic 2.11.4
 - Alembic 1.18.5
+- HTTPX 0.28.1
+- FastAPI 0.117.1
+- pytest 8.3.4
+- pytest-asyncio 0.24.0
 
 依赖声明和运行文档不使用未经本机验证的版本号。重新安装或升级环境后，应重新执行版本核验和 `pip check`。
 
 ## 8. 当前边界
 
-当前实现已经完成多 Agent 图结构、专属子图、工具白名单、退款策略、数据库退款申请、Checkpoint、审批恢复、FastAPI 退款/审批接口和统一运行时入口。当前 `run_refund_workflow` 已通过数据库 Unit of Work 写入本地业务状态；HTTP 层使用开发环境租户 Header，正式 JWT/OAuth 尚未接入。外部支付适配器仍未接入，因此“退款申请已持久化”不等于“第三方退款已完成”。
+当前实现已经完成多 Agent 图结构、专属子图、客服结构化模型网关、输出安全过滤、工具白名单、退款策略、数据库退款申请、Checkpoint、审批恢复、FastAPI 退款/审批接口和统一运行时入口。当前 `run_refund_workflow` 已通过数据库 Unit of Work 写入本地业务状态；HTTP 层使用开发环境租户 Header，正式 JWT/OAuth 尚未接入。外部支付适配器仍未接入，因此“退款申请已持久化”不等于“第三方退款已完成”。RAG、Milvus、SSE 和真实模型 API 冒烟调用不属于本阶段自动验收范围。

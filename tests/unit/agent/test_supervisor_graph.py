@@ -37,7 +37,8 @@ def test_supervisor_cannot_route_to_unregistered_agent() -> None:
         route_from_supervisor(state_with_route("route_unknown"))
 
 
-def test_main_graph_executes_each_specialist_route() -> None:
+@pytest.mark.asyncio
+async def test_main_graph_executes_each_specialist_route() -> None:
     graph = build_main_graph().compile()
 
     cases = {
@@ -48,5 +49,5 @@ def test_main_graph_executes_each_specialist_route() -> None:
     }
 
     for message, specialist in cases.items():
-        result = graph.invoke(new_state(message))
+        result = await graph.ainvoke(new_state(message))
         assert result["specialist_result"].agent_name == specialist

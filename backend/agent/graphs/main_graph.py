@@ -18,15 +18,19 @@ from backend.agent.nodes.guards import (
 )
 from backend.agent.policies.risk import policy_gate_node
 from backend.agent.state import AgentState
+from backend.llm.gateway import ModelGateway
 
 
-def build_main_graph() -> StateGraph:
+def build_main_graph(model_gateway: ModelGateway | None = None) -> StateGraph:
     graph = StateGraph(AgentState)
     graph.add_node("input_security_guard", input_security_guard_node)
     graph.add_node("domain_guard", domain_guard_node)
     graph.add_node("normalize_request", normalize_request)
     graph.add_node("supervisor_agent", supervisor_node)
-    graph.add_node("customer_service_agent", build_customer_service_graph().compile())
+    graph.add_node(
+        "customer_service_agent",
+        build_customer_service_graph(model_gateway=model_gateway).compile(),
+    )
     graph.add_node("knowledge_agent", build_knowledge_graph().compile())
     graph.add_node("billing_agent", build_billing_graph().compile())
     graph.add_node("ticket_agent", build_ticket_graph().compile())
