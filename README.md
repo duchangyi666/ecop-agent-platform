@@ -128,7 +128,7 @@ FastAPI 会直接托管 `frontend/` 静态控制台，启动后端后访问：
 http://localhost:8000/
 ```
 
-控制台提供本地演示所需的最小交互：填写租户/用户 UUID 获取 JWT Token、检索当前租户知识文档、发送客户咨询并展示 SSE 进度事件。它不包含完整 Customer Portal、Support Workspace 或 Admin Console，也不是生产级 Next.js 前端。
+控制台提供本地演示所需的最小交互：填写租户/用户 UUID 获取 JWT Token、检索当前租户知识文档、发送客户咨询并展示 SSE 进度事件，以及查看 Runtime Trace、成本和 Agent 清单。它不包含完整 Customer Portal、Support Workspace 或 Admin Console，也不是生产级 Next.js 前端。
 
 ## 评测系统
 

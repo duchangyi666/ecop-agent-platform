@@ -5,6 +5,7 @@ const knowledgeQuery = document.getElementById("knowledgeQuery");
 const knowledgeResults = document.getElementById("knowledgeResults");
 const messageInput = document.getElementById("message");
 const eventsOutput = document.getElementById("events");
+const runtimeOutput = document.getElementById("runtimeOutput");
 const statusDot = document.getElementById("statusDot");
 const statusText = document.getElementById("statusText");
 
@@ -178,5 +179,57 @@ document.getElementById("askBtn").addEventListener("click", async () => {
     eventsOutput.classList.remove("empty");
     appendEvent("error", { message: error.message });
     setStatus("SSE 失败", false);
+  }
+});
+
+async function fetchRuntime(path) {
+  const body = await requestJson(`/api/v1/runtime${path}`, {
+    method: "GET",
+    headers: authHeaders(false),
+  });
+  return body;
+}
+
+function renderRuntimeData(data) {
+  runtimeOutput.classList.remove("empty");
+  runtimeOutput.textContent = JSON.stringify(data, null, 2);
+}
+
+document.getElementById("tracesBtn").addEventListener("click", async () => {
+  runtimeOutput.textContent = "读取中...";
+  runtimeOutput.classList.remove("empty");
+  try {
+    const body = await fetchRuntime("/traces");
+    renderRuntimeData(body);
+    setStatus("Trace 读取完成", true);
+  } catch (error) {
+    runtimeOutput.textContent = `错误：${escapeHtml(error.message)}`;
+    setStatus("Trace 读取失败", false);
+  }
+});
+
+document.getElementById("costsBtn").addEventListener("click", async () => {
+  runtimeOutput.textContent = "读取中...";
+  runtimeOutput.classList.remove("empty");
+  try {
+    const body = await fetchRuntime("/costs");
+    renderRuntimeData(body);
+    setStatus("成本读取完成", true);
+  } catch (error) {
+    runtimeOutput.textContent = `错误：${escapeHtml(error.message)}`;
+    setStatus("成本读取失败", false);
+  }
+});
+
+document.getElementById("agentsBtn").addEventListener("click", async () => {
+  runtimeOutput.textContent = "读取中...";
+  runtimeOutput.classList.remove("empty");
+  try {
+    const body = await fetchRuntime("/agents");
+    renderRuntimeData(body);
+    setStatus("Agent 读取完成", true);
+  } catch (error) {
+    runtimeOutput.textContent = `错误：${escapeHtml(error.message)}`;
+    setStatus("Agent 读取失败", false);
   }
 });

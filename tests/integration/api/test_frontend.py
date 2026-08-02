@@ -18,6 +18,9 @@ def test_frontend_assets_reference_sse_endpoint(api_client) -> None:
     assert "customer-consultations/stream" in response.text
     assert "knowledge/search" in response.text
     assert "auth/tokens" in response.text
+    assert 'fetchRuntime("/traces")' in response.text
+    assert 'fetchRuntime("/costs")' in response.text
+    assert 'fetchRuntime("/agents")' in response.text
 
 
 def test_frontend_styles_are_served(api_client) -> None:

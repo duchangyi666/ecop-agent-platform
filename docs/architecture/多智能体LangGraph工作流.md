@@ -106,7 +106,7 @@ HTTP 合同已接入 `POST /api/v1/tickets` 和 `GET /api/v1/knowledge/search`�
 
 ## 6.5 本地前端控制台
 
-FastAPI 静态托管 `frontend/`，根路径提供本地演示控制台：可获取 JWT Token、检索当前租户知识文档、发送客户咨询并展示 SSE 进度事件。当前是静态单页控制台，不包含完整 Customer Portal、Support Workspace 或 Admin Console，也不是生产级 Next.js 前端。
+FastAPI 静态托管 `frontend/`，根路径提供本地演示控制台：可获取 JWT Token、检索当前租户知识文档、发送客户咨询并展示 SSE 进度事件，以及查看 Runtime Trace、成本和 Agent 清单。当前是静态单页控制台，不包含完整 Customer Portal、Support Workspace 或 Admin Console，也不是生产级 Next.js 前端。
 
 ## 6.6 检索评测系统
 
