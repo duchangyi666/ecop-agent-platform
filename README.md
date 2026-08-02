@@ -181,6 +181,26 @@ Runtime API 基于 PostgreSQL 中的 `runtime_traces`、`runtime_spans`、`tool_
 
 当前返回数据库已持久化的脱敏摘要，不包含原始 Prompt、知识原文或敏感业务数据。
 
+## Mock 外部服务
+
+`mock_services/` 提供独立的模拟企业外部系统，用于本地开发、退款/工单闭环演示和测试：
+
+- `POST /billing/refunds/preview`：退款预览；
+- `POST /billing/refunds`：退款执行，按 `idempotency_key` 幂等；
+- `GET /billing/refunds/{idempotency_key}`：退款状态；
+- `GET /crm/customers/{customer_id}`：客户资料；
+- `GET/POST /monitoring/incidents`：故障事件；
+- `POST/GET /notification/notifications`：通知队列。
+
+启动 Mock 服务：
+
+```powershell
+$env:PYTHONNOUSERSITE = "1"
+& E:\anaconda3\envs\edu_agent\python.exe -m uvicorn mock_services.app:mock_services_app --port 8001
+```
+
+`MockBillingClient` 提供异步 HTTP 客户端，可被未来退款执行节点调用。当前核心退款仍以本地 PostgreSQL 状态为准，Mock 服务不会替代第三方支付网关。
+
 启动项目专用 Milvus 栈：
 
 ```powershell
@@ -260,6 +280,7 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 - `backend/evaluation`：检索评测指标和评测 Runner
 - `backend/memory`：确定性记忆提取、写入策略和候选记忆服务
 - `backend/llm`：模型网关、结构化回复、安全过滤、模型路由、Prompt Registry 和上下文预算
+- `mock_services`：Billing/CRM/Monitoring/Notification 模拟外部服务
 - `frontend`：由 FastAPI 静态托管的本地演示控制台
 - `alembic/versions`：数据库迁移链
 - `scripts/verify_database.py`：数据库结构和迁移头验收

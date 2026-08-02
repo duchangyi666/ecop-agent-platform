@@ -43,3 +43,5 @@ def test_readme_documents_model_gateway_secret_and_offline_boundaries() -> None:
     assert "PromptRegistry" in readme
     assert "runtime/traces" in readme
     assert "runtime.read" in readme
+    assert "Mock 外部服务" in readme
+    assert "billing/refunds" in readme

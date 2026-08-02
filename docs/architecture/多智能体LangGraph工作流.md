@@ -124,6 +124,10 @@ FastAPI 静态托管 `frontend/`，根路径提供本地演示控制台：可获
 
 Runtime API 基于 `runtime_traces`、`runtime_spans` 和 `agent_definitions` 提供 Trace 列表、Trace 详情、Span 摘要、Token/成本汇总和 Agent 清单。当前返回数据库已持久化的脱敏摘要，不包含原始 Prompt、知识原文或敏感业务数据；Prometheus/Grafana/OpenTelemetry 仍属于后续阶段。
 
+## 6.10 Mock 外部服务边界
+
+`mock_services/` 提供 Billing、CRM、Monitoring 和 Notification 四个模拟外部服务。Mock Billing 支持退款预览、幂等执行和状态查询；`MockBillingClient` 提供异步 HTTP 客户端，为未来退款执行节点提供外部系统边界。当前核心退款仍以本地 PostgreSQL 状态为准，Mock 服务不代表第三方支付网关，不处理真实资金。
+
 ## 7. 当前实际版本
 
 版本以本机 `E:\anaconda3\envs\edu_agent` 环境实际安装结果为准，当前验收记录为：
@@ -146,4 +150,4 @@ Runtime API 基于 `runtime_traces`、`runtime_spans` 和 `agent_definitions` �
 
 ## 8. 当前边界
 
-当前实现已经完成多 Agent 图结构、专属子图、客服结构化模型网关、输出安全过滤、工具白名单、退款策略、工单工具与租户事务服务、RAG 向量知识库、RRF 混合检索、可配置 Reranker、客服证据注入、SSE 进度事件、本地 JWT 认证、本地前端控制台、检索评测、长期记忆写入闭环、模型路由与 Prompt Registry、Runtime 可观测 API、数据库退款申请、Checkpoint、审批恢复、应用级 Gateway Factory、客户咨询 API、FastAPI 退款/审批接口和统一运行时入口。当前 `run_refund_workflow`、`TicketWorkflowService` 和 `KnowledgeWorkflowService` 均通过数据库 Unit of Work 处理本地业务状态；HTTP 层支持本地 JWT Bearer Token 和开发 Header 降级，正式 OAuth/SSO 尚未接入。生产级 Next.js 前端、外部支付适配器仍未接入，因此“退款申请已持久化”不等于“第三方退款已完成”。BGE-M3 默认加载、稀疏向量召回、真实 Cross-Encoder 模型验证、完整 Runtime Dashboard 和真实模型 API 冒烟调用不属于本阶段自动验收范围。
+当前实现已经完成多 Agent 图结构、专属子图、客服结构化模型网关、输出安全过滤、工具白名单、退款策略、工单工具与租户事务服务、RAG 向量知识库、RRF 混合检索、可配置 Reranker、客服证据注入、SSE 进度事件、本地 JWT 认证、本地前端控制台、检索评测、长期记忆写入闭环、模型路由与 Prompt Registry、Runtime 可观测 API、Mock 外部服务边界、数据库退款申请、Checkpoint、审批恢复、应用级 Gateway Factory、客户咨询 API、FastAPI 退款/审批接口和统一运行时入口。当前 `run_refund_workflow`、`TicketWorkflowService` 和 `KnowledgeWorkflowService` 均通过数据库 Unit of Work 处理本地业务状态；HTTP 层支持本地 JWT Bearer Token 和开发 Header 降级，正式 OAuth/SSO 尚未接入。生产级 Next.js 前端、外部支付适配器仍未接入，因此“退款申请已持久化”不等于“第三方退款已完成”。BGE-M3 默认加载、稀疏向量召回、真实 Cross-Encoder 模型验证、完整 Runtime Dashboard 和真实模型 API 冒烟调用不属于本阶段自动验收范围。
