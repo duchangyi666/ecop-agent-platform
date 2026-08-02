@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import logging
 from uuid import uuid4
 
@@ -9,8 +10,11 @@ from fastapi.responses import JSONResponse
 
 from backend.api.schemas import ErrorResponse, HealthResponse
 from backend.api.routes.approvals import router as approvals_router
+from backend.api.routes.customer_service import router as customer_service_router
 from backend.api.routes.refunds import router as refunds_router
 from backend.domain.common import DomainError
+from backend.llm.factory import create_model_gateway
+from backend.llm.gateway import ModelGateway
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +30,18 @@ def _error_response(*, request: Request, status_code: int, code: str, message: s
     return JSONResponse(status_code=status_code, content=payload.model_dump(mode="json"))
 
 
-def create_app() -> FastAPI:
-    app = FastAPI(title="Enterprise Customer Operations Platform", version="0.1.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    gateway = getattr(app.state, "model_gateway", None)
+    close = getattr(gateway, "aclose", None)
+    if close is not None:
+        await close()
+
+
+def create_app(model_gateway: ModelGateway | None = None) -> FastAPI:
+    app = FastAPI(title="Enterprise Customer Operations Platform", version="0.1.0", lifespan=lifespan)
+    app.state.model_gateway = model_gateway or create_model_gateway()
 
     @app.get("/healthz", response_model=HealthResponse)
     async def healthz() -> HealthResponse:
@@ -35,6 +49,7 @@ def create_app() -> FastAPI:
 
     app.include_router(refunds_router)
     app.include_router(approvals_router)
+    app.include_router(customer_service_router)
 
     @app.exception_handler(HTTPException)
     async def handle_http_exception(request: Request, exc: HTTPException) -> JSONResponse:

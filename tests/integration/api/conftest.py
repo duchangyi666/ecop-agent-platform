@@ -7,7 +7,20 @@ from sqlalchemy.pool import NullPool
 from uuid import uuid4
 
 from backend.database.models.identity import Permission, Role, UserRole
+from backend.llm.contracts import ResponseDraft
+from backend.llm.fake import FakeModelGateway
 pytest_plugins = ("tests.integration.database.conftest",)
+
+
+@pytest_asyncio.fixture
+def model_gateway():
+    return FakeModelGateway(
+        ResponseDraft(
+            answer="您好，我可以协助处理 CloudDesk 账户、账单、产品支持和工单问题。",
+            next_action="finish",
+            confidence=0.9,
+        )
+    )
 
 
 @pytest_asyncio.fixture
@@ -21,11 +34,11 @@ async def session_factory(database_url: str) -> async_sessionmaker[AsyncSession]
 
 
 @pytest_asyncio.fixture
-async def api_client(database_url: str, session_factory):
+async def api_client(database_url: str, session_factory, model_gateway):
     from backend.api.dependencies import get_database_url, get_session_factory_dependency
     from backend.main import create_app
 
-    app = create_app()
+    app = create_app(model_gateway=model_gateway)
     app.dependency_overrides[get_database_url] = lambda: database_url
     app.dependency_overrides[get_session_factory_dependency] = lambda: session_factory
     with TestClient(app) as client:
@@ -77,6 +90,12 @@ async def grant_permission(session_factory, tenant_a):
 async def authorized_api_client(api_client, grant_permission, tenant_a_user):
     await grant_permission(tenant_a_user.id, "refund.request")
     await grant_permission(tenant_a_user.id, "refund.approve")
+    return api_client
+
+
+@pytest_asyncio.fixture
+async def customer_consult_api_client(api_client, grant_permission, tenant_a_user):
+    await grant_permission(tenant_a_user.id, "customer.consult")
     return api_client
 
 

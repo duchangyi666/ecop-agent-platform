@@ -6,7 +6,11 @@ import pytest
 from fastapi import HTTPException
 
 from backend.api.dependencies import get_request_context
-from backend.api.schemas import ApprovalActionRequest, RefundCreateRequest
+from backend.api.schemas import (
+    ApprovalActionRequest,
+    CustomerConsultationRequest,
+    RefundCreateRequest,
+)
 
 
 def test_request_context_rejects_missing_tenant_header() -> None:
@@ -34,3 +38,14 @@ def test_approval_request_preserves_bounded_reason() -> None:
     request = ApprovalActionRequest(thread_id="thread-1", approved=False, reason="证据不足")
 
     assert request.reason == "证据不足"
+
+
+def test_customer_consultation_request_strips_whitespace() -> None:
+    request = CustomerConsultationRequest(thread_id="thread-1", message="  客户咨询  ")
+
+    assert request.message == "客户咨询"
+
+
+def test_customer_consultation_request_rejects_blank_message() -> None:
+    with pytest.raises(ValueError):
+        CustomerConsultationRequest(thread_id="thread-1", message="   ")

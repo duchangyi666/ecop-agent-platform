@@ -25,6 +25,61 @@ class ApprovalActionRequest(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
 
 
+class CustomerConsultationRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    thread_id: str = Field(min_length=1, max_length=120)
+    message: str = Field(min_length=1, max_length=2000)
+
+
+class ResponseReviewSummary(BaseModel):
+    status: str
+    code: str
+    reason: str
+
+
+class CustomerConsultationResponse(BaseModel):
+    request_id: str
+    thread_id: str
+    status: str
+    next_action: str | None = None
+    final_response: str | None = None
+    response_review: ResponseReviewSummary | None = None
+    trace_id: UUID | None = None
+    audit_event_ids: list[UUID] = Field(default_factory=list)
+    model_provider: str | None = None
+    model_error_code: str | None = None
+
+    @classmethod
+    def from_result(
+        cls,
+        *,
+        request_id: str,
+        result: Any,
+    ) -> "CustomerConsultationResponse":
+        review = result.response_review
+        return cls(
+            request_id=request_id,
+            thread_id=result.thread_id,
+            status=result.status,
+            next_action=result.next_action,
+            final_response=result.final_response,
+            response_review=(
+                ResponseReviewSummary(
+                    status=review.status,
+                    code=review.code,
+                    reason=review.reason,
+                )
+                if review is not None
+                else None
+            ),
+            trace_id=result.trace_id,
+            audit_event_ids=list(result.audit_event_ids),
+            model_provider=result.model_provider,
+            model_error_code=result.model_error_code,
+        )
+
+
 class RefundResponse(BaseModel):
     request_id: str
     thread_id: str
@@ -76,10 +131,13 @@ class HealthResponse(BaseModel):
 
 __all__ = [
     "ApprovalActionRequest",
+    "CustomerConsultationRequest",
+    "CustomerConsultationResponse",
     "ErrorPayload",
     "ErrorResponse",
     "HealthResponse",
     "RefundCreateRequest",
     "RefundResponse",
+    "ResponseReviewSummary",
     "WorkflowStatusResponse",
 ]

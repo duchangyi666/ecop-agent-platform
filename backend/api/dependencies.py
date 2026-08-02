@@ -4,13 +4,14 @@ from dataclasses import dataclass
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.config import get_settings
 from backend.database.base import TenantScope
 from backend.database.session import get_session_factory
 from backend.database.unit_of_work import UnitOfWork
+from backend.llm.gateway import ModelGateway
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +62,10 @@ def get_session_factory_dependency() -> async_sessionmaker[AsyncSession]:
     return get_session_factory()
 
 
+def get_app_model_gateway(request: Request) -> ModelGateway:
+    return request.app.state.model_gateway
+
+
 def require_permission(permission_code: str):
     async def dependency(
         context=Depends(get_request_context),
@@ -95,6 +100,7 @@ def require_permission(permission_code: str):
 
 __all__ = [
     "RequestContext",
+    "get_app_model_gateway",
     "get_database_url",
     "get_request_context",
     "get_session_factory_dependency",

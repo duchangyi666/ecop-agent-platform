@@ -53,11 +53,12 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 当前已提供：
 
 - `GET /healthz`：应用存活检查；
+- `POST /api/v1/customer-consultations`：调用主图生成客户咨询安全回复；
 - `POST /api/v1/refunds`：提交本地退款申请；
 - `POST /api/v1/approvals/{approval_request_id}`：批准或拒绝退款审批；
 - `GET /api/v1/workflows/{thread_id}`：按租户查询脱敏工作流状态。
 
-业务请求需要携带开发环境 Header：`X-Tenant-Id`、`X-Actor-Id`、`X-Actor-Type`，可选 `X-Request-Id`。这些 Header 只用于当前本地开发和集成测试，不等同于生产 JWT/OAuth 认证。接口的详细合同见 [`docs/superpowers/specs/2026-08-02-退款业务HTTP API设计.md`](docs/superpowers/specs/2026-08-02-退款业务HTTP%20API设计.md)。
+业务请求需要携带开发环境 Header：`X-Tenant-Id`、`X-Actor-Id`、`X-Actor-Type`，可选 `X-Request-Id`。这些 Header 只用于当前本地开发和集成测试，不等同于生产 JWT/OAuth 认证。客户咨询需要 `customer.consult` 权限，退款接口需要 `refund.request` / `refund.approve`。接口详细合同见 [`docs/superpowers/specs/2026-08-02-退款业务HTTP API设计.md`](docs/superpowers/specs/2026-08-02-退款业务HTTP%20API设计.md) 和 [`docs/superpowers/specs/2026-08-02-客户咨询API与模型网关工厂设计.md`](docs/superpowers/specs/2026-08-02-客户咨询API与模型网关工厂设计.md)。
 
 ## Guard 与安全边界
 
@@ -81,7 +82,14 @@ Guard 终止结果会写入同一租户的 `AuditLog`、`RuntimeTrace` 和 `Work
 - 模型异常、敏感输出和未经证据支持的业务结论会返回固定安全回复或转人工，不会触发退款、审批、工单或数据库工具；
 - `DEEPSEEK_API_KEY` 只允许从运行时环境变量读取，仓库、测试、日志和文档不保存 Key、完整 Prompt 或模型响应原文。
 
-如需在本机显式接入模型，先设置环境变量，再由调用方注入 `DeepSeekGateway(ModelGatewaySettings.from_env())`；自动回归不执行真实 API 冒烟请求：
+应用启动时通过 `backend/llm/factory.py` 的 `create_model_gateway()` 创建网关并放入 FastAPI `app.state`：
+
+- 没有 `DEEPSEEK_API_KEY` 时默认创建 `FakeModelGateway`，本地启动和自动测试不访问外网；
+- 显式配置 `DEEPSEEK_API_KEY` 时才创建 `DeepSeekGateway`；
+- 客户咨询 API 从 `app.state` 读取同一个应用级 Gateway，不在请求内临时构造外部客户端；
+- 测试或本地演示可通过 `create_app(model_gateway=FakeModelGateway(...))` 显式注入离线网关。
+
+如需在本机显式接入模型，先设置环境变量；自动回归不执行真实 API 冒烟请求：
 
 ```powershell
 $env:DEEPSEEK_API_KEY = "<仅保存在本机进程环境中的新 Key>"
@@ -99,10 +107,10 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 & E:\anaconda3\envs\edu_agent\python.exe scripts\seed_demo_identity.py `
   --tenant-id <租户UUID> `
   --user-id <用户UUID> `
-  --permissions refund.request refund.approve
+  --permissions refund.request refund.approve customer.consult
 ```
 
-该脚本只允许声明的两个权限码，并且重复执行幂等；仅用于开发和测试，不替代生产认证、角色审批和密钥管理。
+该脚本只允许声明的三个权限码，并且重复执行幂等；仅用于开发和测试，不替代生产认证、角色审批和密钥管理。
 
 ## 目录说明
 
@@ -113,6 +121,7 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 - `alembic/versions`：数据库迁移链
 - `scripts/verify_database.py`：数据库结构和迁移头验收
 - `docs/architecture`：中文领域模型、数据库、事务、Guard、多智能体工作流和退款审批闭环文档
+- `docs/superpowers/specs`：模型网关、Guard、退款业务和客户咨询 API 合同
 - `docs/验证记录`：按实际 Python 环境和数据库容器生成的验收证据
 
 ## 约束

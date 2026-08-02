@@ -9,6 +9,8 @@ def test_readme_documents_api_entrypoint_and_dev_context() -> None:
 
     assert "backend.main:app" in readme
     assert "X-Tenant-Id" in readme
+    assert "POST /api/v1/customer-consultations" in readme
+    assert "customer.consult" in readme
     assert "本地退款申请" in readme
     assert "input_security_guard" in readme
     assert "业务范围 Guard" in readme
@@ -20,6 +22,7 @@ def test_readme_documents_model_gateway_secret_and_offline_boundaries() -> None:
 
     assert "DEEPSEEK_API_KEY" in readme
     assert "只允许从运行时环境变量读取" in readme
+    assert "create_model_gateway()" in readme
     assert "FakeModelGateway" in readme
     assert "自动回归不执行真实 API 冒烟请求" in readme
     assert "不保存 Key、完整 Prompt 或模型响应原文" in readme
