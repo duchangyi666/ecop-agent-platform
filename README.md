@@ -59,6 +59,19 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 
 业务请求需要携带开发环境 Header：`X-Tenant-Id`、`X-Actor-Id`、`X-Actor-Type`，可选 `X-Request-Id`。这些 Header 只用于当前本地开发和集成测试，不等同于生产 JWT/OAuth 认证。接口的详细合同见 [`docs/superpowers/specs/2026-08-02-退款业务HTTP API设计.md`](docs/superpowers/specs/2026-08-02-退款业务HTTP%20API设计.md)。
 
+为开发用户授予退款权限：
+
+```powershell
+$env:PYTHONNOUSERSITE = "1"
+$env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations"
+& E:\anaconda3\envs\edu_agent\python.exe scripts\seed_demo_identity.py `
+  --tenant-id <租户UUID> `
+  --user-id <用户UUID> `
+  --permissions refund.request refund.approve
+```
+
+该脚本只允许声明的两个权限码，并且重复执行幂等；仅用于开发和测试，不替代生产认证、角色审批和密钥管理。
+
 ## 目录说明
 
 - `backend/domain`：支付、退款、工单和审批状态机
