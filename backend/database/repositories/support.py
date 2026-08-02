@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID, uuid4
@@ -11,7 +11,7 @@ from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database.base import TenantScope
-from backend.database.models.billing import Customer
+from backend.database.models.billing import Customer, Refund
 from backend.database.models.identity import User
 from backend.database.repositories.base import TenantScopedRepository
 from backend.database.models.support import ApprovalAction, ApprovalRequest, AuditLog, Ticket, TicketEvent, TicketMessage
@@ -83,6 +83,10 @@ class SupportRepository(TenantScopedRepository):
 
     async def _get_ticket_for_tenant(self, *, scope: TenantScope, ticket_id: UUID) -> Ticket | None:
         statement = self._tenant_visible(select(Ticket), Ticket, scope=scope).where(Ticket.id == ticket_id)
+        return await self.session.scalar(statement)
+
+    async def _get_refund_for_tenant(self, *, scope: TenantScope, refund_id: UUID) -> Refund | None:
+        statement = self._tenant_visible(select(Refund), Refund, scope=scope).where(Refund.id == refund_id)
         return await self.session.scalar(statement)
 
     async def _get_user_id_in_tenant_or_none(self, *, scope: TenantScope, user_id: UUID | None) -> UUID | None:
@@ -209,6 +213,53 @@ class SupportRepository(TenantScopedRepository):
         )
         await self.session.flush()
         return approval
+
+    async def create_refund_approval_request(
+        self,
+        *,
+        scope: TenantScope,
+        refund_id: UUID,
+        action: str,
+        payload: dict[str, Any],
+        approval_role: str,
+        checkpoint_reference: str | None = None,
+    ) -> ApprovalRequest:
+        refund = await self._get_refund_for_tenant(scope=scope, refund_id=refund_id)
+        if refund is None:
+            raise DomainError("refund not found in tenant scope")
+
+        stored_actor_id = await self._get_user_id_in_tenant_or_none(scope=scope, user_id=scope.actor_id)
+        sanitized_payload = _sanitize_payload(payload)
+        approval = ApprovalRequest(
+            id=uuid4(),
+            tenant_id=scope.tenant_id,
+            ticket_id=None,
+            refund_id=refund.id,
+            requested_by_user_id=stored_actor_id,
+            action=action,
+            payload_summary=sanitized_payload,
+            payload_hash=_hash_payload(payload),
+            amount=_extract_amount(payload) or refund.amount,
+            risk_level="high",
+            approval_role=approval_role,
+            status=ApprovalStatus.PENDING,
+            expires_at=datetime.now(timezone.utc) + self.DEFAULT_APPROVAL_TTL,
+            checkpoint_reference=checkpoint_reference,
+        )
+        self.session.add(approval)
+        await self.session.flush()
+        return approval
+
+    async def get_approval_request_for_tenant(
+        self,
+        *,
+        scope: TenantScope,
+        approval_request_id: UUID,
+    ) -> ApprovalRequest | None:
+        return await self._get_approval_request_for_tenant(
+            scope=scope,
+            approval_request_id=approval_request_id,
+        )
 
     async def append_approval_action(
         self,

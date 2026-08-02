@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -10,7 +11,15 @@ from sqlalchemy import Select, and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database.base import TenantScope
-from backend.database.models.governance import MemoryRecord, Policy, PolicyVersion, RuntimeSpan, RuntimeTrace
+from backend.database.models.governance import (
+    MemoryRecord,
+    Policy,
+    PolicyVersion,
+    RuntimeSpan,
+    RuntimeTrace,
+    ToolExecution,
+    WorkflowCheckpoint,
+)
 from backend.database.repositories.base import TenantScopedRepository
 from backend.domain.common import DomainError
 
@@ -41,6 +50,145 @@ def _hash_payload(payload: dict[str, Any]) -> str:
 class GovernanceRepository(TenantScopedRepository):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(session)
+
+    async def create_runtime_trace(
+        self,
+        *,
+        scope: TenantScope,
+        trace_key: str,
+        entrypoint: str,
+        input_summary: str,
+        input_hash: str,
+    ) -> RuntimeTrace:
+        trace = RuntimeTrace(
+            id=uuid4(),
+            tenant_id=scope.tenant_id,
+            trace_key=trace_key,
+            status="running",
+            entrypoint=entrypoint,
+            input_summary=input_summary[:2000],
+            input_hash=input_hash,
+            model_profile_version_id=None,
+            prompt_version_id=None,
+            total_input_tokens=0,
+            total_output_tokens=0,
+            total_cost=Decimal("0.00"),
+            retry_count=0,
+            error_summary=None,
+            started_at=datetime.now(timezone.utc),
+            finished_at=None,
+        )
+        self.session.add(trace)
+        await self.session.flush()
+        return trace
+
+    async def complete_runtime_trace(
+        self,
+        *,
+        trace_id: UUID,
+        status: str,
+        error_summary: str | None,
+    ) -> RuntimeTrace:
+        trace = await self.session.get(RuntimeTrace, trace_id)
+        if trace is None or trace.deleted_at is not None:
+            raise DomainError("runtime trace not found")
+        trace.status = status
+        trace.error_summary = error_summary[:500] if error_summary else None
+        trace.finished_at = datetime.now(timezone.utc)
+        await self.session.flush()
+        return trace
+
+    async def record_tool_execution(
+        self,
+        *,
+        scope: TenantScope,
+        trace_id: UUID,
+        tool_name: str,
+        status: str,
+        arguments_summary: dict[str, Any],
+        result_summary: dict[str, Any] | None,
+        error_summary: str | None,
+    ) -> ToolExecution:
+        trace_statement = self._tenant_visible(select(RuntimeTrace), RuntimeTrace, scope=scope).where(
+            RuntimeTrace.id == trace_id
+        )
+        trace = await self.session.scalar(trace_statement)
+        if trace is None:
+            raise DomainError("runtime trace not found in tenant scope")
+
+        execution = ToolExecution(
+            id=uuid4(),
+            tenant_id=scope.tenant_id,
+            trace_id=trace.id,
+            span_id=None,
+            tool_name=tool_name,
+            status=status,
+            arguments_summary=_sanitize(arguments_summary),
+            result_summary=_sanitize(result_summary) if result_summary is not None else None,
+            error_summary=error_summary[:500] if error_summary else None,
+            retry_count=0,
+            duration_ms=None,
+        )
+        self.session.add(execution)
+        await self.session.flush()
+        return execution
+
+    async def save_workflow_checkpoint(
+        self,
+        *,
+        scope: TenantScope,
+        thread_id: str,
+        state_summary: dict[str, Any],
+        refund_idempotency_key: str,
+        status: str,
+        trace_id: UUID | None,
+    ) -> WorkflowCheckpoint:
+        if trace_id is not None:
+            trace_statement = self._tenant_visible(select(RuntimeTrace), RuntimeTrace, scope=scope).where(
+                RuntimeTrace.id == trace_id
+            )
+            trace = await self.session.scalar(trace_statement)
+            if trace is None:
+                raise DomainError("runtime trace not found in tenant scope")
+
+        checkpoint_statement = self._tenant_visible(
+            select(WorkflowCheckpoint),
+            WorkflowCheckpoint,
+            scope=scope,
+        ).where(WorkflowCheckpoint.thread_id == thread_id)
+        checkpoint = await self.session.scalar(checkpoint_statement)
+        sanitized_state = _sanitize(state_summary)
+        if checkpoint is None:
+            checkpoint = WorkflowCheckpoint(
+                id=uuid4(),
+                tenant_id=scope.tenant_id,
+                thread_id=thread_id,
+                state_summary=sanitized_state,
+                refund_idempotency_key=refund_idempotency_key,
+                status=status,
+                trace_id=trace_id,
+            )
+            self.session.add(checkpoint)
+        else:
+            checkpoint.state_summary = sanitized_state
+            checkpoint.refund_idempotency_key = refund_idempotency_key
+            checkpoint.status = status
+            checkpoint.trace_id = trace_id
+        await self.session.flush()
+        return checkpoint
+
+    async def get_workflow_checkpoint(
+        self,
+        *,
+        scope: TenantScope,
+        thread_id: str,
+    ) -> WorkflowCheckpoint | None:
+        statement = self._tenant_visible(
+            select(WorkflowCheckpoint),
+            WorkflowCheckpoint,
+            scope=scope,
+        ).where(WorkflowCheckpoint.thread_id == thread_id)
+        return await self.session.scalar(statement)
 
     async def get_published_policy(self, *, scope: TenantScope, policy_code: str, at: datetime) -> PolicyVersion | None:
         if at.tzinfo is None or at.utcoffset() is None:

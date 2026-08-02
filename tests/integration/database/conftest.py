@@ -12,7 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from backend.database.base import TenantScope
 from backend.database.base import Base
 from backend.database.models.billing import Customer, Invoice, Payment, Refund
+from backend.database.models.governance import RuntimeSpan, RuntimeTrace, ToolExecution, WorkflowCheckpoint
 from backend.database.models.identity import Tenant, User
+from backend.database.models.support import ApprovalAction, ApprovalRequest, AuditLog
 from backend.domain.billing import PaymentStatus
 
 TEST_DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations"
@@ -45,7 +47,20 @@ async def session_factory(database_url: str) -> async_sessionmaker[AsyncSession]
 
 async def _cleanup(factory: async_sessionmaker[AsyncSession], tenant_id: UUID) -> None:
     async with factory() as session:
-        for model in (Refund, Payment, Invoice, Customer, User):
+        for model in (
+            WorkflowCheckpoint,
+            RuntimeSpan,
+            ToolExecution,
+            AuditLog,
+            ApprovalAction,
+            ApprovalRequest,
+            RuntimeTrace,
+            Refund,
+            Payment,
+            Invoice,
+            Customer,
+            User,
+        ):
             await session.execute(delete(model).where(model.tenant_id == tenant_id))
         await session.execute(delete(Tenant).where(Tenant.id == tenant_id))
         await session.commit()
