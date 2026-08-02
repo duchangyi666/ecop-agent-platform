@@ -26,6 +26,8 @@ class WorkflowResult:
     status: str
     refund_idempotency_key: str
     state: dict[str, Any]
+    refund_id: UUID | None = None
+    approval_request_id: UUID | None = None
     trace_id: UUID | None = None
     audit_event_ids: list[UUID] = field(default_factory=list)
 
@@ -77,24 +79,37 @@ async def resume_after_approval(
         status=status,
         refund_idempotency_key=checkpoint["refund_idempotency_key"],
         state=checkpoint["state"],
+        refund_id=checkpoint["state"].get("refund_id"),
+        approval_request_id=checkpoint["state"].get("approval_request_id"),
         trace_id=checkpoint["state"].get("trace_id"),
         audit_event_ids=checkpoint["state"].get("audit_event_ids"),
     )
 
 
 async def run_refund_workflow(
-    request: WorkflowRequest,
+    request: WorkflowRequest | Any,
     *,
     database_url: str,
     checkpointer: CheckpointStore | None = None,
 ) -> WorkflowResult:
-    """Run the refund workflow through the shared multi-agent runtime.
+    """Run a structured refund request through the database-backed service.
 
-    ``database_url`` is part of the application boundary. Database-backed
-    tool execution is injected in the next adapter layer; this graph-level
-    function deliberately keeps orchestration independent from persistence.
+    The previous generic ``WorkflowRequest`` shape remains supported for the
+    graph-only contract test; real refund requests use ``RefundWorkflowRequest``.
     """
-    del database_url
+    from backend.agent.refund_workflow import RefundWorkflowRequest, RefundWorkflowService
+
+    if isinstance(request, RefundWorkflowRequest):
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+        engine = create_async_engine(database_url, pool_pre_ping=True)
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        try:
+            service = RefundWorkflowService(session_factory, checkpoint_store=checkpointer)
+            return await service.run(request)
+        finally:
+            await engine.dispose()
+
     store = checkpointer or InMemoryCheckpointStore()
     return await run_agent_workflow(request, store, registry=None)
 

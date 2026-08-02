@@ -8,6 +8,7 @@ import pytest_asyncio
 from sqlalchemy import delete
 from sqlalchemy import inspect
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from backend.database.base import TenantScope
 from backend.database.base import Base
@@ -37,7 +38,7 @@ async def database_url() -> str:
 async def session_factory(database_url: str) -> async_sessionmaker[AsyncSession]:
     import backend.database.models  # noqa: F401
 
-    engine = create_async_engine(database_url, pool_pre_ping=True)
+    engine = create_async_engine(database_url, pool_pre_ping=True, poolclass=NullPool)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         yield factory

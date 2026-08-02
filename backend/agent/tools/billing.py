@@ -53,6 +53,9 @@ class BillingTool:
     async def execute(self, request: RefundToolRequest) -> Any:
         if not request.approved:
             raise DomainError("refund execution requires policy approval")
+        return await self.request(request)
+
+    async def request(self, request: RefundToolRequest) -> Any:
         return await self.uow.billing.create_refund_request(
             scope=request.scope,
             payment_id=request.payment_id,
