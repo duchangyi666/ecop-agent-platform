@@ -50,3 +50,5 @@ def test_readme_documents_model_gateway_secret_and_offline_boundaries() -> None:
     assert "backend.tasks.worker" in readme
     assert "backend.tasks.scheduler" in readme
     assert "memory.expire" in readme
+    assert "SPARSE_VECTOR_ENABLED" in readme
+    assert "ecop_knowledge_chunks_v2" in readme

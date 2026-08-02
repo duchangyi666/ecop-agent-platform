@@ -267,13 +267,22 @@ $env:MILVUS_URI = "http://localhost:19531"
 $env:BGE_M3_MODEL_PATH = "D:\models\BAAI\bge-m3"
 ```
 
+开启 BGE-M3 稀疏向量召回（集合名升级为 `ecop_knowledge_chunks_v2`）：
+
+```powershell
+$env:SPARSE_VECTOR_ENABLED = "1"
+$env:MILVUS_COLLECTION = "ecop_knowledge_chunks_v2"
+```
+
+未配置 `BGE_M3_MODEL_PATH` 时，稀疏向量使用确定性本地哈希向量，不访问外网；配置后使用 FlagEmbedding BGE-M3 生成 sparse lexical weights，Milvus 使用 Dense + Sparse hybrid search。
+
 精排默认使用确定性 RRF 得分排序；如需启用 Cross-Encoder，指定本地模型目录：
 
 ```powershell
 $env:RERANKER_MODEL_PATH = "D:\models\BAAI\bge-reranker-large"
 ```
 
-本阶段不保存原始知识正文到审计、日志或运行轨迹；搜索响应只返回文档摘要、RRF 得分和最多 300 字的分片摘要。尚未接入 BGE-M3 默认加载、稀疏向量召回或真实 Cross-Encoder 模型验证。
+本阶段不保存原始知识正文到审计、日志或运行轨迹；搜索响应只返回文档摘要、RRF 得分和最多 300 字的分片摘要。BGE-M3 稀疏向量已提供可选适配器，真实模型加载和评测对比仍属于后续验证。
 
 Guard 终止结果会写入同一租户的 `AuditLog`、`RuntimeTrace` 和 `WorkflowCheckpoint`。检查点和对外响应不保存或回显敏感原文。Guard 使用当前仓库已安装的确定性 Python/Pydantic 规则，不代表已经接入 LLM 安全分类器、Redis、第三方支付或正式 JWT/OAuth。
 
