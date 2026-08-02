@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from backend.database.base import TenantScope
 from backend.database.models.billing import Customer, Refund
@@ -102,7 +103,11 @@ class SupportRepository(TenantScopedRepository):
         return stored_user_id
 
     async def _get_approval_request_for_tenant(self, *, scope: TenantScope, approval_request_id: UUID) -> ApprovalRequest | None:
-        statement = self._tenant_visible(select(ApprovalRequest), ApprovalRequest, scope=scope).where(ApprovalRequest.id == approval_request_id)
+        statement = (
+            self._tenant_visible(select(ApprovalRequest), ApprovalRequest, scope=scope)
+            .options(selectinload(ApprovalRequest.actions))
+            .where(ApprovalRequest.id == approval_request_id)
+        )
         return await self.session.scalar(statement)
 
     async def create_ticket(self, *, scope: TenantScope, customer_id: UUID, subject: str, priority: str) -> Ticket:

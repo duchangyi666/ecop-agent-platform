@@ -39,6 +39,8 @@ def _sanitize(value: Any, key: str = "") -> Any:
         return {str(item_key): _sanitize(item_value, str(item_key)) for item_key, item_value in value.items()}
     if isinstance(value, list):
         return [_sanitize(item, key) for item in value]
+    if isinstance(value, (UUID, Decimal, datetime)):
+        return str(value)
     return value
 
 
