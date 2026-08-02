@@ -4,12 +4,13 @@ from dataclasses import dataclass
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import Header, HTTPException
+from fastapi import Depends, Header, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.config import get_settings
 from backend.database.base import TenantScope
 from backend.database.session import get_session_factory
+from backend.database.unit_of_work import UnitOfWork
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,9 +61,42 @@ def get_session_factory_dependency() -> async_sessionmaker[AsyncSession]:
     return get_session_factory()
 
 
+def require_permission(permission_code: str):
+    async def dependency(
+        context=Depends(get_request_context),
+        session_factory=Depends(get_session_factory_dependency),
+    ) -> RequestContext:
+        async with UnitOfWork(session_factory, scope=context.scope) as uow:
+            actor_id = context.scope.actor_id
+            if actor_id is None:
+                raise HTTPException(
+                    status_code=403,
+                    detail={"code": "tenant_identity_invalid", "message": "tenant identity is invalid"},
+                )
+            user = await uow.identity.get_user_in_tenant(scope=context.scope, user_id=actor_id)
+            if user is None or user.status != "active":
+                raise HTTPException(
+                    status_code=403,
+                    detail={"code": "tenant_identity_invalid", "message": "tenant identity is invalid"},
+                )
+            if not await uow.identity.has_permission(
+                scope=context.scope,
+                user_id=actor_id,
+                permission_code=permission_code,
+            ):
+                raise HTTPException(
+                    status_code=403,
+                    detail={"code": "permission_denied", "message": "permission denied"},
+                )
+        return context
+
+    return dependency
+
+
 __all__ = [
     "RequestContext",
     "get_database_url",
     "get_request_context",
     "get_session_factory_dependency",
+    "require_permission",
 ]

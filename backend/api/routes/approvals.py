@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 
 from backend.agent.approval_workflow import resume_refund_after_approval
-from backend.api.dependencies import RequestContext, get_database_url, get_request_context
+from backend.api.dependencies import RequestContext, get_database_url, require_permission
 from backend.api.schemas import ApprovalActionRequest, RefundResponse
 
 router = APIRouter(prefix="/api/v1", tags=["approvals"])
@@ -15,7 +15,7 @@ router = APIRouter(prefix="/api/v1", tags=["approvals"])
 async def act_on_approval(
     approval_request_id: UUID,
     payload: ApprovalActionRequest,
-    context: RequestContext = Depends(get_request_context),
+    context: RequestContext = Depends(require_permission("refund.approve")),
     database_url: str = Depends(get_database_url),
 ) -> RefundResponse:
     result = await resume_refund_after_approval(
