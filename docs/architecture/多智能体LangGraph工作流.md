@@ -132,6 +132,10 @@ Runtime API 基于 `runtime_traces`、`runtime_spans` 和 `agent_definitions` �
 
 根目录 `docker-compose.yml` 编排 PostgreSQL、Redis、etcd、MinIO、Milvus、后端 API、Mock 服务和 Nginx 前端；`.github/workflows/ci.yml` 在 CI 中启动依赖、执行迁移、完整测试和 `alembic check`。Dockerfile 只安装项目声明的依赖，密钥通过环境变量注入。
 
+## 6.12 Worker 与 Scheduler
+
+项目使用 Redis 队列 `ecop:tasks` 执行异步任务。`TaskWorker` 消费队列并按任务类型分发；`TaskScheduler` 定时入队 `memory.expire`；`memory.expire` 软删除超过 TTL 的长期记忆记录。Docker Compose 已包含 `backend-worker` 和 `backend-scheduler` 服务。当前任务范围是维护任务，不承担退款、审批或外部支付执行。
+
 ## 7. 当前实际版本
 
 版本以本机 `E:\anaconda3\envs\edu_agent` 环境实际安装结果为准，当前验收记录为：
@@ -154,4 +158,4 @@ Runtime API 基于 `runtime_traces`、`runtime_spans` 和 `agent_definitions` �
 
 ## 8. 当前边界
 
-当前实现已经完成多 Agent 图结构、专属子图、客服结构化模型网关、输出安全过滤、工具白名单、退款策略、工单工具与租户事务服务、RAG 向量知识库、RRF 混合检索、可配置 Reranker、客服证据注入、SSE 进度事件、本地 JWT 认证、本地前端控制台、检索评测、长期记忆写入闭环、模型路由与 Prompt Registry、Runtime 可观测 API、Mock 外部服务边界、Docker Compose 与 CI/CD、数据库退款申请、Checkpoint、审批恢复、应用级 Gateway Factory、客户咨询 API、FastAPI 退款/审批接口和统一运行时入口。当前 `run_refund_workflow`、`TicketWorkflowService` 和 `KnowledgeWorkflowService` 均通过数据库 Unit of Work 处理本地业务状态；HTTP 层支持本地 JWT Bearer Token 和开发 Header 降级，正式 OAuth/SSO 尚未接入。生产级 Next.js 前端、外部支付适配器仍未接入，因此“退款申请已持久化”不等于“第三方退款已完成”。BGE-M3 默认加载、稀疏向量召回、真实 Cross-Encoder 模型验证和真实模型 API 冒烟调用不属于本阶段自动验收范围。
+当前实现已经完成多 Agent 图结构、专属子图、客服结构化模型网关、输出安全过滤、工具白名单、退款策略、工单工具与租户事务服务、RAG 向量知识库、RRF 混合检索、可配置 Reranker、客服证据注入、SSE 进度事件、本地 JWT 认证、本地前端控制台、检索评测、长期记忆写入闭环、模型路由与 Prompt Registry、Runtime 可观测 API、Mock 外部服务边界、Docker Compose 与 CI/CD、Redis Worker 与 Scheduler、数据库退款申请、Checkpoint、审批恢复、应用级 Gateway Factory、客户咨询 API、FastAPI 退款/审批接口和统一运行时入口。当前 `run_refund_workflow`、`TicketWorkflowService` 和 `KnowledgeWorkflowService` 均通过数据库 Unit of Work 处理本地业务状态；HTTP 层支持本地 JWT Bearer Token 和开发 Header 降级，正式 OAuth/SSO 尚未接入。生产级 Next.js 前端、外部支付适配器仍未接入，因此“退款申请已持久化”不等于“第三方退款已完成”。BGE-M3 默认加载、稀疏向量召回、真实 Cross-Encoder 模型验证和真实模型 API 冒烟调用不属于本阶段自动验收范围。

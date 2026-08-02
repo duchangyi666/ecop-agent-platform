@@ -56,7 +56,7 @@ docker compose up -d --build
 - 后端 API：`http://localhost:8000/`
 - Mock 外部服务：`http://localhost:8001/`
 - PostgreSQL：`localhost:54329`
-- Redis：`localhost:16379`
+- Redis：`localhost:16380`
 - Milvus：`localhost:19541`
 
 首次启动需要执行数据库迁移：
@@ -68,6 +68,25 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 ```
 
 GitHub Actions 流水线见 `.github/workflows/ci.yml`，会启动 PostgreSQL/Redis/Milvus/etcd/MinIO，执行迁移、完整测试和迁移漂移检查。
+
+## Worker 与 Scheduler
+
+项目使用 Redis 队列执行异步任务：
+
+- `backend/tasks/worker.py`：消费 `ecop:tasks`，当前支持 `memory.expire`；
+- `backend/tasks/scheduler.py`：定时入队 `memory.expire`，默认每 3600 秒；
+- `memory.expire`：软删除已超过 TTL 的长期记忆记录。
+
+Docker Compose 已包含 `backend-worker` 和 `backend-scheduler` 服务。本地单独启动：
+
+```powershell
+$env:PYTHONNOUSERSITE = "1"
+$env:REDIS_URL = "redis://localhost:16380/0"
+& E:\anaconda3\envs\edu_agent\python.exe -m backend.tasks.worker
+& E:\anaconda3\envs\edu_agent\python.exe -m backend.tasks.scheduler
+```
+
+当前 Worker 只处理已实现的维护任务，后续可扩展知识重索引、评测执行和通知发送。
 
 ## HTTP API（开发环境）
 

@@ -47,3 +47,6 @@ def test_readme_documents_model_gateway_secret_and_offline_boundaries() -> None:
     assert "billing/refunds" in readme
     assert "docker-compose.yml" in readme
     assert ".github/workflows/ci.yml" in readme
+    assert "backend.tasks.worker" in readme
+    assert "backend.tasks.scheduler" in readme
+    assert "memory.expire" in readme
