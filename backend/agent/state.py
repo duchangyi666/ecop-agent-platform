@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from backend.agent.contracts import SpecialistResult, SupervisorDecision
 from backend.agent.guards import DomainDecision, GuardDecision
 from backend.database.base import TenantScope
+from backend.llm.contracts import ModelCallError, ModelUsage, ResponseDraft
 
 
 class ConversationMessage(BaseModel):
@@ -29,6 +30,14 @@ class AgentState(BaseModel):
     next_action: str = "finish"
     guard_decision: GuardDecision | None = None
     domain_decision: DomainDecision | None = None
+    response_draft: ResponseDraft | None = None
+    final_response: str | None = None
+    model_usage: ModelUsage | None = None
+    model_error: ModelCallError | None = None
+    response_review: Any | None = None
+    model_call_count: int = 0
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
     supervisor_decision: SupervisorDecision | None = None
     specialist_result: SpecialistResult | None = None
     errors: list[dict[str, Any]] = Field(default_factory=list)
