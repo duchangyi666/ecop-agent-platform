@@ -241,6 +241,59 @@ class HealthResponse(BaseModel):
     status: str
 
 
+class RuntimeTraceItem(BaseModel):
+    trace_id: UUID
+    trace_key: str
+    status: str
+    entrypoint: str
+    started_at: Any = None
+    finished_at: Any = None
+    total_cost: Any = None
+    error_summary: str | None = None
+
+
+class RuntimeTraceListResponse(BaseModel):
+    request_id: str
+    traces: list[RuntimeTraceItem] = Field(default_factory=list)
+
+
+class RuntimeSpanItem(BaseModel):
+    span_id: UUID
+    node_name: str
+    status: str
+    input_summary: str
+    output_summary: str
+    started_at: Any = None
+    duration_ms: int | None = None
+
+
+class RuntimeTraceDetailResponse(BaseModel):
+    request_id: str
+    trace: RuntimeTraceItem
+    spans: list[RuntimeSpanItem] = Field(default_factory=list)
+
+
+class RuntimeCostResponse(BaseModel):
+    request_id: str
+    trace_count: int
+    total_input_tokens: int
+    total_output_tokens: int
+    total_cost: Any = None
+    failed_count: int
+
+
+class RuntimeAgentItem(BaseModel):
+    agent_id: UUID
+    agent_code: str
+    name: str
+    status: str
+
+
+class RuntimeAgentListResponse(BaseModel):
+    request_id: str
+    agents: list[RuntimeAgentItem] = Field(default_factory=list)
+
+
 class EvaluationRunRequest(BaseModel):
     dataset_code: str = Field(min_length=1, max_length=120)
     limit: int = Field(default=5, ge=1, le=20)
@@ -295,6 +348,13 @@ __all__ = [
     "KnowledgeSearchResponse",
     "RefundCreateRequest",
     "RefundResponse",
+    "RuntimeAgentItem",
+    "RuntimeAgentListResponse",
+    "RuntimeCostResponse",
+    "RuntimeSpanItem",
+    "RuntimeTraceDetailResponse",
+    "RuntimeTraceItem",
+    "RuntimeTraceListResponse",
     "ResponseReviewSummary",
     "TicketCreateRequest",
     "TicketResponse",

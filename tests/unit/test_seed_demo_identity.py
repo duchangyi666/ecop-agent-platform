@@ -13,4 +13,5 @@ def test_seed_demo_identity_exposes_explicit_permission_codes() -> None:
         "knowledge.ingest",
         "evaluation.read",
         "evaluation.run",
+        "runtime.read",
     }

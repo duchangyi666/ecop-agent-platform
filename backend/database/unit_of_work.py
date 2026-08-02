@@ -10,6 +10,7 @@ from backend.database.repositories.evaluation import EvaluationRepository
 from backend.database.repositories.governance import GovernanceRepository
 from backend.database.repositories.identity import IdentityRepository
 from backend.database.repositories.knowledge import KnowledgeRepository
+from backend.database.repositories.runtime import RuntimeRepository
 from backend.database.repositories.support import SupportRepository
 
 
@@ -30,6 +31,7 @@ class UnitOfWork:
         self.governance = GovernanceRepository(self.session)
         self.knowledge = KnowledgeRepository(self.session)
         self.evaluation = EvaluationRepository(self.session)
+        self.runtime = RuntimeRepository(self.session)
 
     async def __aenter__(self) -> "UnitOfWork":
         return self

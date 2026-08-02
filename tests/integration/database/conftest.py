@@ -14,6 +14,7 @@ from backend.database.base import TenantScope
 from backend.database.base import Base
 from backend.database.models.billing import Customer, Invoice, Payment, Refund
 from backend.database.models.governance import (
+    AgentDefinition,
     Document,
     DocumentVersion,
     EvaluationCase,
@@ -89,6 +90,7 @@ async def _cleanup(factory: async_sessionmaker[AsyncSession], tenant_id: UUID) -
             EvaluationCase,
             EvaluationDataset,
             MemoryRecord,
+            AgentDefinition,
             Refund,
             Payment,
             Invoice,

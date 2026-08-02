@@ -26,6 +26,7 @@ SUPPORTED_PERMISSIONS = {
     "knowledge.ingest",
     "evaluation.read",
     "evaluation.run",
+    "runtime.read",
 }
 ROLE_CODES = {
     "refund.request": "demo_refund_requester",
@@ -36,6 +37,7 @@ ROLE_CODES = {
     "knowledge.ingest": "demo_knowledge_ingestor",
     "evaluation.read": "demo_evaluation_reader",
     "evaluation.run": "demo_evaluation_runner",
+    "runtime.read": "demo_runtime_reader",
 }
 
 

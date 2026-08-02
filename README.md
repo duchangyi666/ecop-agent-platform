@@ -59,6 +59,10 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 - `POST /api/v1/auth/tokens`：为当前租户活动用户签发本地 JWT Bearer Token；
 - `GET /api/v1/evaluations`：查看当前租户评测运行；
 - `POST /api/v1/evaluations/run`：运行检索评测并返回 Recall@K、MRR、NDCG；
+- `GET /api/v1/runtime/traces`：查看当前租户 Runtime Trace；
+- `GET /api/v1/runtime/traces/{trace_id}`：查看 Trace 和 Span 详情；
+- `GET /api/v1/runtime/costs`：查看当前租户 Token 和成本汇总；
+- `GET /api/v1/runtime/agents`：查看 Agent 定义清单；
 - `POST /api/v1/tickets`：创建租户作用域工单；
 - `GET /api/v1/knowledge/search`：检索当前租户 active 知识文档；
 - `POST /api/v1/knowledge/documents`：摄取知识文档、分片并写入 Milvus 向量索引；
@@ -66,7 +70,7 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 - `POST /api/v1/approvals/{approval_request_id}`：批准或拒绝退款审批；
 - `GET /api/v1/workflows/{thread_id}`：按租户查询脱敏工作流状态。
 
-业务请求需要携带开发环境 Header：`X-Tenant-Id`、`X-Actor-Id`、`X-Actor-Type`，可选 `X-Request-Id`。这些 Header 只用于当前本地开发和集成测试，不等同于生产 JWT/OAuth 认证。客户咨询需要 `customer.consult`，工单创建需要 `ticket.create`，知识检索需要 `knowledge.search`，知识摄取需要 `knowledge.ingest`，退款接口需要 `refund.request` / `refund.approve`，评测需要 `evaluation.read` / `evaluation.run`。接口详细合同见 [`docs/superpowers/specs/2026-08-02-退款业务HTTP API设计.md`](docs/superpowers/specs/2026-08-02-退款业务HTTP%20API设计.md) 和 [`docs/superpowers/specs/2026-08-02-客户咨询API与模型网关工厂设计.md`](docs/superpowers/specs/2026-08-02-客户咨询API与模型网关工厂设计.md)。
+业务请求需要携带开发环境 Header：`X-Tenant-Id`、`X-Actor-Id`、`X-Actor-Type`，可选 `X-Request-Id`。这些 Header 只用于当前本地开发和集成测试，不等同于生产 JWT/OAuth 认证。客户咨询需要 `customer.consult`，工单创建需要 `ticket.create`，知识检索需要 `knowledge.search`，知识摄取需要 `knowledge.ingest`，退款接口需要 `refund.request` / `refund.approve`，评测需要 `evaluation.read` / `evaluation.run`，Runtime 查看需要 `runtime.read`。接口详细合同见 [`docs/superpowers/specs/2026-08-02-退款业务HTTP API设计.md`](docs/superpowers/specs/2026-08-02-退款业务HTTP%20API设计.md) 和 [`docs/superpowers/specs/2026-08-02-客户咨询API与模型网关工厂设计.md`](docs/superpowers/specs/2026-08-02-客户咨询API与模型网关工厂设计.md)。
 
 ## 本地 JWT 认证
 
@@ -166,6 +170,17 @@ $env:MODEL_ROUTE_PROVIDER = "deepseek"
 
 当前路由和预算主要作用于客户咨询链路；完整 Model Router 调用、Prompt 管理 API 和 DB 持久化 Prompt 版本仍属于后续阶段。
 
+## Runtime 可观测 API
+
+Runtime API 基于 PostgreSQL 中的 `runtime_traces`、`runtime_spans`、`tool_executions` 和 `agent_definitions` 返回当前租户可观测数据：
+
+- Trace 列表和详情；
+- Span 输入/输出摘要；
+- Token 和成本汇总；
+- Agent 定义清单。
+
+当前返回数据库已持久化的脱敏摘要，不包含原始 Prompt、知识原文或敏感业务数据。
+
 启动项目专用 Milvus 栈：
 
 ```powershell
@@ -230,7 +245,7 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 & E:\anaconda3\envs\edu_agent\python.exe scripts\seed_demo_identity.py `
   --tenant-id <租户UUID> `
   --user-id <用户UUID> `
-  --permissions refund.request refund.approve customer.consult ticket.create knowledge.search knowledge.ingest evaluation.read evaluation.run
+  --permissions refund.request refund.approve customer.consult ticket.create knowledge.search knowledge.ingest evaluation.read evaluation.run runtime.read
 ```
 
 该脚本只允许声明的五个权限码，并且重复执行幂等；仅用于开发和测试，不替代生产认证、角色审批和密钥管理。

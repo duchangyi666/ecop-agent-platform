@@ -41,3 +41,5 @@ def test_readme_documents_model_gateway_secret_and_offline_boundaries() -> None:
     assert "长期记忆" in readme
     assert "MODEL_ROUTE_MODEL" in readme
     assert "PromptRegistry" in readme
+    assert "runtime/traces" in readme
+    assert "runtime.read" in readme

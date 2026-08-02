@@ -126,6 +126,12 @@ async def evaluation_api_client(api_client, grant_permission, tenant_a_user):
 
 
 @pytest_asyncio.fixture
+async def runtime_api_client(api_client, grant_permission, tenant_a_user):
+    await grant_permission(tenant_a_user.id, "runtime.read")
+    return api_client
+
+
+@pytest_asyncio.fixture
 async def request_only_api_client(api_client, grant_permission, tenant_a_user):
     await grant_permission(tenant_a_user.id, "refund.request")
     return api_client

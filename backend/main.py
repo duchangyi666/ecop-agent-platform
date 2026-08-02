@@ -18,6 +18,7 @@ from backend.api.routes.customer_service import router as customer_service_route
 from backend.api.routes.evaluations import router as evaluations_router
 from backend.api.routes.knowledge import router as knowledge_router
 from backend.api.routes.refunds import router as refunds_router
+from backend.api.routes.runtime import router as runtime_router
 from backend.api.routes.tickets import router as tickets_router
 from backend.domain.common import DomainError
 from backend.llm.factory import create_model_gateway
@@ -74,6 +75,7 @@ def create_app(
     app.include_router(knowledge_router)
     app.include_router(auth_router)
     app.include_router(evaluations_router)
+    app.include_router(runtime_router)
 
     if FRONTEND_DIR.is_dir():
         app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
