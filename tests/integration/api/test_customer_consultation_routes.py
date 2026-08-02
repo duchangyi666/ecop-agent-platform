@@ -250,3 +250,29 @@ async def test_customer_consultation_stream_emits_progress_events(
     assert "event: completed" in body
     assert "event: done" in body
     assert "knowledge_evidence_count" in body
+
+
+@pytest.mark.asyncio
+async def test_customer_consultation_captures_memory_candidate(
+    customer_consult_client_factory,
+    api_headers,
+) -> None:
+    gateway = FakeModelGateway(
+        ResponseDraft(
+            answer="好的，已记录您的偏好。",
+            next_action="finish",
+            confidence=0.9,
+        )
+    )
+    payload = _payload("memory")
+    payload["message"] = "客户咨询，我偏好使用中文沟通"
+
+    with customer_consult_client_factory(gateway) as client:
+        response = client.post(
+            "/api/v1/customer-consultations",
+            headers=api_headers,
+            json=payload,
+        )
+
+    assert response.status_code == 200
+    assert response.json()["memory_candidate_count"] >= 1

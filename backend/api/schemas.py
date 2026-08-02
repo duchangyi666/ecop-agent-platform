@@ -50,6 +50,7 @@ class CustomerConsultationResponse(BaseModel):
     model_provider: str | None = None
     model_error_code: str | None = None
     knowledge_evidence_count: int = 0
+    memory_candidate_count: int = 0
 
     @classmethod
     def from_result(
@@ -79,6 +80,7 @@ class CustomerConsultationResponse(BaseModel):
             model_provider=result.model_provider,
             model_error_code=result.model_error_code,
             knowledge_evidence_count=result.knowledge_evidence_count,
+            memory_candidate_count=result.memory_candidate_count,
         )
 
 

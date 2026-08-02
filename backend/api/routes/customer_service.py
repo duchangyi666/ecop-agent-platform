@@ -23,6 +23,7 @@ from backend.api.dependencies import (
 )
 from backend.api.schemas import CustomerConsultationRequest, CustomerConsultationResponse
 from backend.llm.gateway import ModelGateway
+from backend.memory.service import MemoryService
 from backend.rag.config import get_rag_settings
 from backend.rag.reranker import create_reranker
 from backend.rag.retriever import ConsultationKnowledgeRetriever
@@ -61,6 +62,7 @@ async def stream_customer_consultation(
             reranker=create_reranker(get_rag_settings()),
         ),
         event_sink=sink,
+        memory_service=MemoryService(session_factory),
     )
 
     async def run_service() -> None:
@@ -138,7 +140,9 @@ async def create_customer_consultation(
         knowledge_retriever=ConsultationKnowledgeRetriever(
             session_factory,
             vector_store=vector_store,
+            reranker=create_reranker(get_rag_settings()),
         ),
+        memory_service=MemoryService(session_factory),
     ).run(request)
 
     if result.status == "blocked":

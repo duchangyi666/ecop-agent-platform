@@ -37,3 +37,5 @@ def test_readme_documents_model_gateway_secret_and_offline_boundaries() -> None:
     assert "evaluations/run" in readme
     assert "Recall@K" in readme
     assert "RERANKER_MODEL_PATH" in readme
+    assert "memory_candidate_count" in readme
+    assert "长期记忆" in readme

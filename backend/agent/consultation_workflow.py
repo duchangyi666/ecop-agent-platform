@@ -11,10 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.agent.graphs.main_graph import build_main_graph
 from backend.agent.state import AgentState, KnowledgeEvidence
+from backend.database.models.governance import MemoryRecord
 from backend.database.unit_of_work import UnitOfWork
 from backend.llm.contracts import ModelUsage
 from backend.llm.gateway import ModelGateway
 from backend.llm.safety import ResponseSafetyDecision
+from backend.memory.service import MemoryService
 from backend.rag.retriever import ConsultationKnowledgeRetriever
 
 EventSink = Callable[[str, dict[str, Any]], Awaitable[None]]
@@ -37,6 +39,7 @@ class CustomerConsultationResult:
     model_provider: str | None = None
     model_error_code: str | None = None
     knowledge_evidence_count: int = 0
+    memory_candidate_count: int = 0
     trace_id: UUID | None = None
     audit_event_ids: list[UUID] = field(default_factory=list)
 
@@ -139,11 +142,13 @@ class CustomerConsultationService:
         model_gateway: ModelGateway,
         knowledge_retriever: ConsultationKnowledgeRetriever | None = None,
         event_sink: EventSink | None = None,
+        memory_service: MemoryService | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.model_gateway = model_gateway
         self.knowledge_retriever = knowledge_retriever
         self.event_sink = event_sink
+        self.memory_service = memory_service
 
     async def run(
         self,
@@ -160,15 +165,15 @@ class CustomerConsultationService:
 
         evidence: list[KnowledgeEvidence] = []
         graph_state = request.state
+        user_message = next(
+            (
+                message.content
+                for message in reversed(request.state.conversation)
+                if message.role == "user"
+            ),
+            "",
+        )
         if self.knowledge_retriever is not None:
-            user_message = next(
-                (
-                    message.content
-                    for message in reversed(request.state.conversation)
-                    if message.role == "user"
-                ),
-                "",
-            )
             evidence = await self.knowledge_retriever.retrieve(
                 scope=request.state.tenant_scope,
                 query=user_message,
@@ -217,6 +222,16 @@ class CustomerConsultationService:
                     f"{request.thread_id}:{request.state.request_id}".encode("utf-8")
                 ).hexdigest(),
             )
+            memory_records: list[MemoryRecord] = []
+            if self.memory_service is not None:
+                memory_records = await self.memory_service.capture_in_uow(
+                    uow,
+                    scope=scope,
+                    user_id=scope.actor_id,
+                    customer_id=request.state.customer_id,
+                    message=user_message,
+                    response=result.final_response,
+                )
             audit = await uow.support.append_audit_log(
                 scope=scope,
                 actor_id=scope.actor_id,
@@ -233,6 +248,7 @@ class CustomerConsultationService:
                     "model_provider": result.model_provider,
                     "model_error_code": result.model_error_code,
                     "knowledge_evidence_count": len(evidence),
+                    "memory_candidate_count": len(memory_records),
                 },
             )
             await uow.governance.complete_runtime_trace(
@@ -245,6 +261,7 @@ class CustomerConsultationService:
             result,
             trace_id=trace.id,
             audit_event_ids=[audit.id],
+            memory_candidate_count=len(memory_records),
         )
 
     @staticmethod

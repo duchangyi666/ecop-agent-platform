@@ -147,6 +147,12 @@ $env:PYTHONNOUSERSITE = "1"
   --name "Tenant Retrieval Dataset"
 ```
 
+## 长期记忆
+
+客户咨询完成后，`MemoryService` 会从对话中提取稳定的偏好候选，例如语言偏好、时区和用户偏好；`MemoryWritePolicy` 拒绝低置信度、瞬时状态、凭据和过短内容。候选记忆只保存脱敏摘要和哈希，不保存原始聊天内容、最终回复或系统 Prompt。
+
+客户咨询响应中的 `memory_candidate_count` 只报告本次写入的候选数量，不返回记忆正文。
+
 启动项目专用 Milvus 栈：
 
 ```powershell
@@ -224,6 +230,7 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 - `backend/database/unit_of_work.py`：事务边界与 Repository 组合
 - `backend/rag`：Embedding、文本分片、Milvus 向量存储和知识摄取服务
 - `backend/evaluation`：检索评测指标和评测 Runner
+- `backend/memory`：确定性记忆提取、写入策略和候选记忆服务
 - `frontend`：由 FastAPI 静态托管的本地演示控制台
 - `alembic/versions`：数据库迁移链
 - `scripts/verify_database.py`：数据库结构和迁移头验收
