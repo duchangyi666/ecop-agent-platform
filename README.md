@@ -166,7 +166,13 @@ $env:MILVUS_URI = "http://localhost:19531"
 $env:BGE_M3_MODEL_PATH = "D:\models\BAAI\bge-m3"
 ```
 
-本阶段不保存原始知识正文到审计、日志或运行轨迹；搜索响应只返回文档摘要、RRF 得分和最多 300 字的分片摘要。尚未接入 BGE-M3 默认加载、Reranker、SSE、正式身份认证或第三方支付。
+精排默认使用确定性 RRF 得分排序；如需启用 Cross-Encoder，指定本地模型目录：
+
+```powershell
+$env:RERANKER_MODEL_PATH = "D:\models\BAAI\bge-reranker-large"
+```
+
+本阶段不保存原始知识正文到审计、日志或运行轨迹；搜索响应只返回文档摘要、RRF 得分和最多 300 字的分片摘要。尚未接入 BGE-M3 默认加载、稀疏向量召回或真实 Cross-Encoder 模型验证。
 
 Guard 终止结果会写入同一租户的 `AuditLog`、`RuntimeTrace` 和 `WorkflowCheckpoint`。检查点和对外响应不保存或回显敏感原文。Guard 使用当前仓库已安装的确定性 Python/Pydantic 规则，不代表已经接入 LLM 安全分类器、Redis、第三方支付或正式 JWT/OAuth。
 

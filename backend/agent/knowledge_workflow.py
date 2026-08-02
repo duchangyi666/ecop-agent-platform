@@ -18,6 +18,7 @@ from backend.agent.tools.knowledge import (
 )
 from backend.database.unit_of_work import UnitOfWork
 from backend.rag.hybrid import merge_document_results
+from backend.rag.reranker import KnowledgeDocumentReranker
 from backend.rag.vector_store import KnowledgeVectorStore
 
 
@@ -52,9 +53,11 @@ class KnowledgeWorkflowService:
         self,
         session_factory: async_sessionmaker[AsyncSession],
         vector_store: KnowledgeVectorStore | None = None,
+        document_reranker: KnowledgeDocumentReranker | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.vector_store = vector_store
+        self.document_reranker = document_reranker
 
     async def run(self, request: KnowledgeWorkflowRequest) -> KnowledgeWorkflowResult:
         scope = request.state.tenant_scope
@@ -164,6 +167,11 @@ class KnowledgeWorkflowService:
                         query=request.query,
                         limit=request.limit,
                     )
+                )
+            if self.document_reranker is not None:
+                results = await self.document_reranker.rerank(
+                    query=request.query,
+                    candidates=results,
                 )
             final_response = (
                 f"已找到 {len(results)} 条知识文档。"

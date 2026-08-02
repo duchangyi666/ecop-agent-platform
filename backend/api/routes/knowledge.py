@@ -11,6 +11,8 @@ from backend.agent.knowledge_workflow import (
     KnowledgeWorkflowService,
 )
 from backend.rag.ingestion import KnowledgeIngestRequest, KnowledgeIngestService
+from backend.rag.config import get_rag_settings
+from backend.rag.reranker import create_document_reranker
 from backend.agent.state import create_agent_state
 from backend.api.dependencies import (
     RequestContext,
@@ -35,7 +37,11 @@ async def search_knowledge(
     vector_store: KnowledgeVectorStore | None = Depends(get_knowledge_vector_store),
 ) -> KnowledgeSearchResponse:
     resolved_thread_id = thread_id or f"knowledge-{uuid4().hex}"
-    result = await KnowledgeWorkflowService(session_factory, vector_store=vector_store).run(
+    result = await KnowledgeWorkflowService(
+        session_factory,
+        vector_store=vector_store,
+        document_reranker=create_document_reranker(get_rag_settings()),
+    ).run(
         KnowledgeWorkflowRequest(
             thread_id=resolved_thread_id,
             state=create_agent_state(

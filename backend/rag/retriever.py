@@ -8,6 +8,7 @@ from backend.agent.state import KnowledgeEvidence
 from backend.database.base import TenantScope
 from backend.database.repositories.knowledge import KnowledgeRepository
 from backend.rag.hybrid import merge_evidence
+from backend.rag.reranker import KnowledgeReranker
 from backend.rag.vector_store import KnowledgeVectorStore
 
 
@@ -16,9 +17,11 @@ class ConsultationKnowledgeRetriever:
         self,
         session_factory: async_sessionmaker[AsyncSession] | None,
         vector_store: KnowledgeVectorStore | None = None,
+        reranker: KnowledgeReranker | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.vector_store = vector_store
+        self.reranker = reranker
 
     async def retrieve(
         self,
@@ -31,8 +34,23 @@ class ConsultationKnowledgeRetriever:
         if self.session_factory is None or not normalized:
             return []
         if self.vector_store is not None:
-            return await self._retrieve_from_vector(scope=scope, query=normalized, limit=limit)
-        return await self._retrieve_from_postgres(scope=scope, query=normalized, limit=limit)
+            evidence = await self._retrieve_from_vector(
+                scope=scope,
+                query=normalized,
+                limit=limit,
+            )
+        else:
+            evidence = await self._retrieve_from_postgres(
+                scope=scope,
+                query=normalized,
+                limit=limit,
+            )
+        if self.reranker is not None:
+            evidence = await self.reranker.rerank(
+                query=normalized,
+                candidates=evidence,
+            )
+        return evidence
 
     async def _retrieve_from_vector(
         self,

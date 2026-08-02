@@ -43,6 +43,12 @@ class FakeVectorStore:
         return None
 
 
+class ReversingReranker:
+    async def rerank(self, *, query, candidates):
+        del query
+        return list(reversed(candidates))
+
+
 @pytest.mark.asyncio
 async def test_consultation_retriever_returns_tenant_scoped_postgres_evidence(
     session_factory,
@@ -116,3 +122,57 @@ async def test_consultation_retriever_uses_vector_snippet_and_tenant_metadata(
     assert evidence[0].document_id == document.id
     assert evidence[0].content_snippet == "企业版服务等级目标为百分之九十九点九可用性。"
     assert evidence[0].score is not None
+
+
+@pytest.mark.asyncio
+async def test_consultation_retriever_applies_reranker(
+    session_factory,
+    tenant_a,
+) -> None:
+    first = await _add_document(
+        session_factory,
+        tenant_a.id,
+        external_document_id="first-policy",
+        title="第一份政策",
+    )
+    second = await _add_document(
+        session_factory,
+        tenant_a.id,
+        external_document_id="second-policy",
+        title="第二份政策",
+    )
+    vector_store = FakeVectorStore(
+        [
+            KnowledgeVectorHit(
+                document_id=first.id,
+                chunk_id=uuid4(),
+                external_document_id="first-policy",
+                title="第一份政策",
+                source_uri="https://docs.example.com/first-policy",
+                content_snippet="第一份摘要",
+                score=0.9,
+            ),
+            KnowledgeVectorHit(
+                document_id=second.id,
+                chunk_id=uuid4(),
+                external_document_id="second-policy",
+                title="第二份政策",
+                source_uri="https://docs.example.com/second-policy",
+                content_snippet="第二份摘要",
+                score=0.8,
+            ),
+        ]
+    )
+    retriever = ConsultationKnowledgeRetriever(
+        session_factory,
+        vector_store=vector_store,
+        reranker=ReversingReranker(),
+    )
+
+    evidence = await retriever.retrieve(
+        scope=TenantScope(tenant_id=tenant_a.id),
+        query="政策",
+        limit=5,
+    )
+
+    assert [item.document_id for item in evidence] == [second.id, first.id]

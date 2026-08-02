@@ -96,7 +96,7 @@ Guard 终止时不进入 Supervisor、专属 Agent 或业务工具。退款应�
 
 `KnowledgeRepository` 只查询当前租户 `status="active"` 的 `documents` 记录；未配置 Milvus 时匹配标题、外部文档 ID 和来源 URI，配置后由 `MilvusKnowledgeVectorStore` 执行租户过滤的向量召回，并与 PostgreSQL 关键词结果做 RRF 融合。`KnowledgeTool` 和 `ConsultationKnowledgeRetriever` 返回安全的文档摘要，不返回文档正文或原始检索上下文。`KnowledgeWorkflowService` 先运行主图 Guard，确认业务域为 `knowledge` 后再执行检索，并写入 `AuditLog`、`RuntimeTrace` 和 `ToolExecution`。
 
-当前知识检索已包含 PostgreSQL 确定性降级、Milvus 向量召回、RRF 混合融合、知识摄取和客服证据注入；默认 Embedding 是确定性离线向量，BGE-M3 通过 `BGE_M3_MODEL_PATH` 可选启用。检索日志不保存原始查询词，只保存结果数量和文档 ID 摘要。
+当前知识检索已包含 PostgreSQL 确定性降级、Milvus 向量召回、RRF 混合融合、可配置 Reranker、知识摄取和客服证据注入；默认 Embedding 和精排是确定性离线实现，BGE-M3 和 Cross-Encoder 分别通过 `BGE_M3_MODEL_PATH`、`RERANKER_MODEL_PATH` 可选启用。检索日志不保存原始查询词，只保存结果数量和文档 ID 摘要。
 
 HTTP 合同已接入 `POST /api/v1/tickets` 和 `GET /api/v1/knowledge/search`；路由仍复用对应应用服务，不直接让模型执行工单写入或知识检索。
 
@@ -134,4 +134,4 @@ FastAPI 静态托管 `frontend/`，根路径提供本地演示控制台：可获
 
 ## 8. 当前边界
 
-当前实现已经完成多 Agent 图结构、专属子图、客服结构化模型网关、输出安全过滤、工具白名单、退款策略、工单工具与租户事务服务、RAG 向量知识库、RRF 混合检索、客服证据注入、SSE 进度事件、本地 JWT 认证、本地前端控制台、检索评测、数据库退款申请、Checkpoint、审批恢复、应用级 Gateway Factory、客户咨询 API、FastAPI 退款/审批接口和统一运行时入口。当前 `run_refund_workflow`、`TicketWorkflowService` 和 `KnowledgeWorkflowService` 均通过数据库 Unit of Work 处理本地业务状态；HTTP 层支持本地 JWT Bearer Token 和开发 Header 降级，正式 OAuth/SSO 尚未接入。生产级 Next.js 前端、外部支付适配器仍未接入，因此“退款申请已持久化”不等于“第三方退款已完成”。BGE-M3 默认加载、Reranker、完整评测 Dashboard 和真实模型 API 冒烟调用不属于本阶段自动验收范围。
+当前实现已经完成多 Agent 图结构、专属子图、客服结构化模型网关、输出安全过滤、工具白名单、退款策略、工单工具与租户事务服务、RAG 向量知识库、RRF 混合检索、可配置 Reranker、客服证据注入、SSE 进度事件、本地 JWT 认证、本地前端控制台、检索评测、数据库退款申请、Checkpoint、审批恢复、应用级 Gateway Factory、客户咨询 API、FastAPI 退款/审批接口和统一运行时入口。当前 `run_refund_workflow`、`TicketWorkflowService` 和 `KnowledgeWorkflowService` 均通过数据库 Unit of Work 处理本地业务状态；HTTP 层支持本地 JWT Bearer Token 和开发 Header 降级，正式 OAuth/SSO 尚未接入。生产级 Next.js 前端、外部支付适配器仍未接入，因此“退款申请已持久化”不等于“第三方退款已完成”。BGE-M3 默认加载、稀疏向量召回、真实 Cross-Encoder 模型验证、完整评测 Dashboard 和真实模型 API 冒烟调用不属于本阶段自动验收范围。

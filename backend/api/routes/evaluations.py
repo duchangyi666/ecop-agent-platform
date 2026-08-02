@@ -17,6 +17,8 @@ from backend.api.schemas import (
 )
 from backend.database.unit_of_work import UnitOfWork
 from backend.evaluation.runner import EvaluationRunner
+from backend.rag.config import get_rag_settings
+from backend.rag.reranker import create_reranker
 from backend.rag.retriever import ConsultationKnowledgeRetriever
 from backend.rag.vector_store import KnowledgeVectorStore
 
@@ -59,6 +61,7 @@ async def run_retrieval_evaluation(
     retriever = ConsultationKnowledgeRetriever(
         session_factory,
         vector_store=vector_store,
+        reranker=create_reranker(get_rag_settings()),
     )
     result = await EvaluationRunner(
         session_factory,
