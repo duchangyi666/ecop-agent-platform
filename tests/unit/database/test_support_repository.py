@@ -5,11 +5,13 @@ from decimal import Decimal
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import select
 
 from backend.database.base import TenantScope
 from backend.domain.approval import ApprovalStatus
 from backend.domain.common import DomainError, InvalidStateTransition
 from backend.domain.ticket import TicketStatus
+from backend.database.models.support import TicketEvent, TicketMessage
 
 
 @pytest.fixture
@@ -51,6 +53,107 @@ async def test_create_ticket_uses_tenant_scope_and_open_status(repository, tenan
     assert ticket.subject == "Payment retry issue"
     assert ticket.priority == "high"
     assert ticket.status is TicketStatus.OPEN
+
+
+@pytest.mark.asyncio
+async def test_create_ticket_records_created_event_and_initial_message(
+    repository,
+    tenant_a,
+    customer,
+):
+    ticket = await repository.create_ticket(
+        scope=TenantScope(tenant_id=tenant_a.id),
+        customer_id=customer.id,
+        subject="New ticket with detail",
+        priority="urgent",
+        description_summary="用户无法登录",
+        initial_message="请优先处理登录问题",
+    )
+    await repository.session.commit()
+
+    event = await repository.session.scalar(
+        select(TicketEvent).where(
+            TicketEvent.ticket_id == ticket.id,
+            TicketEvent.event_type == "ticket_created",
+        )
+    )
+    message = await repository.session.scalar(
+        select(TicketMessage).where(
+            TicketMessage.ticket_id == ticket.id,
+            TicketMessage.body == "请优先处理登录问题",
+        )
+    )
+
+    assert ticket.description_summary == "用户无法登录"
+    assert event is not None
+    assert event.from_status is None
+    assert event.to_status is TicketStatus.OPEN
+    assert message is not None
+
+
+@pytest.mark.asyncio
+async def test_update_ticket_status_writes_event_and_message(
+    repository,
+    tenant_a,
+    customer,
+    user,
+):
+    scope = TenantScope(tenant_id=tenant_a.id, actor_id=user.id)
+    ticket = await repository.create_ticket(
+        scope=scope,
+        customer_id=customer.id,
+        subject="Status update",
+        priority="high",
+    )
+    await repository.session.flush()
+
+    updated = await repository.update_ticket_status(
+        scope=scope,
+        ticket_id=ticket.id,
+        target_status=TicketStatus.IN_PROGRESS,
+        actor_id=user.id,
+        reason="开始处理",
+    )
+    await repository.session.commit()
+
+    event = await repository.session.scalar(
+        select(TicketEvent).where(
+            TicketEvent.ticket_id == ticket.id,
+            TicketEvent.event_type == "status_changed",
+        )
+    )
+    message = await repository.session.scalar(
+        select(TicketMessage).where(
+            TicketMessage.ticket_id == ticket.id,
+            TicketMessage.body == "开始处理",
+        )
+    )
+
+    assert updated.status is TicketStatus.IN_PROGRESS
+    assert event is not None
+    assert event.from_status is TicketStatus.OPEN
+    assert event.to_status is TicketStatus.IN_PROGRESS
+    assert message is not None
+
+
+@pytest.mark.asyncio
+async def test_update_ticket_status_rejects_invalid_transition(repository, tenant_a, customer):
+    ticket = await repository.create_ticket(
+        scope=TenantScope(tenant_id=tenant_a.id),
+        customer_id=customer.id,
+        subject="Invalid transition",
+        priority="low",
+    )
+    await repository.session.flush()
+
+    with pytest.raises(InvalidStateTransition):
+        await repository.update_ticket_status(
+            scope=TenantScope(tenant_id=tenant_a.id),
+            ticket_id=ticket.id,
+            target_status=TicketStatus.REOPENED,
+            actor_id=None,
+            reason="无效状态跳转",
+        )
 
 
 @pytest.mark.asyncio

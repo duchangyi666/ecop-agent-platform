@@ -15,7 +15,15 @@ from backend.database.base import Base
 from backend.database.models.billing import Customer, Invoice, Payment, Refund
 from backend.database.models.governance import RuntimeSpan, RuntimeTrace, ToolExecution, WorkflowCheckpoint
 from backend.database.models.identity import Permission, Role, Tenant, User, UserRole
-from backend.database.models.support import ApprovalAction, ApprovalRequest, AuditLog
+from backend.database.models.support import (
+    ApprovalAction,
+    ApprovalRequest,
+    AuditLog,
+    Ticket,
+    TicketAssignment,
+    TicketEvent,
+    TicketMessage,
+)
 from backend.domain.billing import PaymentStatus
 
 TEST_DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations"
@@ -56,6 +64,10 @@ async def _cleanup(factory: async_sessionmaker[AsyncSession], tenant_id: UUID) -
             ApprovalAction,
             ApprovalRequest,
             RuntimeTrace,
+            TicketMessage,
+            TicketEvent,
+            TicketAssignment,
+            Ticket,
             Refund,
             Payment,
             Invoice,

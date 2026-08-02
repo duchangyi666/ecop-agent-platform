@@ -110,7 +110,17 @@ class SupportRepository(TenantScopedRepository):
         )
         return await self.session.scalar(statement)
 
-    async def create_ticket(self, *, scope: TenantScope, customer_id: UUID, subject: str, priority: str) -> Ticket:
+    async def create_ticket(
+        self,
+        *,
+        scope: TenantScope,
+        customer_id: UUID,
+        subject: str,
+        priority: str,
+        description_summary: str | None = None,
+        category: str | None = None,
+        initial_message: str | None = None,
+    ) -> Ticket:
         customer = await self._get_customer_for_tenant(scope=scope, customer_id=customer_id)
         if customer is None:
             raise DomainError("customer not found in tenant scope")
@@ -120,14 +130,80 @@ class SupportRepository(TenantScopedRepository):
             tenant_id=scope.tenant_id,
             customer_id=customer_id,
             subject=subject,
-            description_summary=None,
-            category=None,
+            description_summary=description_summary,
+            category=category,
             priority=priority,
             status=TicketStatus.OPEN,
             current_assignee_id=None,
             resolved_at=None,
         )
         self.session.add(ticket)
+        self.session.add(
+            TicketEvent(
+                id=uuid4(),
+                tenant_id=scope.tenant_id,
+                ticket_id=ticket.id,
+                actor_id=None,
+                event_type="ticket_created",
+                from_status=None,
+                to_status=TicketStatus.OPEN,
+                payload_summary={"priority": priority},
+            )
+        )
+        if initial_message:
+            self.session.add(
+                TicketMessage(
+                    id=uuid4(),
+                    tenant_id=scope.tenant_id,
+                    ticket_id=ticket.id,
+                    author_id=None,
+                    body=initial_message,
+                    visibility="internal",
+                )
+            )
+        await self.session.flush()
+        return ticket
+
+    async def update_ticket_status(
+        self,
+        *,
+        scope: TenantScope,
+        ticket_id: UUID,
+        target_status: TicketStatus,
+        actor_id: UUID | None,
+        reason: str,
+        changes: dict[str, Any] | None = None,
+    ) -> Ticket:
+        ticket = await self._get_ticket_for_tenant(scope=scope, ticket_id=ticket_id)
+        if ticket is None:
+            raise DomainError("ticket not found in tenant scope")
+
+        previous_status = ticket.status
+        ticket.status = transition_ticket(ticket.status, target_status)
+        stored_actor_id = await self._get_user_id_in_tenant_or_none(scope=scope, user_id=actor_id)
+        sanitized_changes = _sanitize_payload(changes or {})
+        self.session.add(
+            TicketEvent(
+                id=uuid4(),
+                tenant_id=scope.tenant_id,
+                ticket_id=ticket.id,
+                actor_id=stored_actor_id,
+                event_type="status_changed",
+                from_status=previous_status,
+                to_status=ticket.status,
+                payload_summary={"reason": reason[:500], **sanitized_changes},
+            )
+        )
+        self.session.add(
+            TicketMessage(
+                id=uuid4(),
+                tenant_id=scope.tenant_id,
+                ticket_id=ticket.id,
+                author_id=stored_actor_id,
+                body=reason,
+                visibility="internal",
+            )
+        )
         await self.session.flush()
         return ticket
 

@@ -85,6 +85,12 @@ Guard 终止时不进入 Supervisor、专属 Agent 或业务工具。退款应�
 
 客户咨询入口为 `POST /api/v1/customer-consultations`，要求开发环境 Header 和 `customer.consult` 权限。应用服务调用主图后返回 `final_response`、`next_action` 和 `response_review` 摘要；输入安全 `block` 与业务范围 `out_of_scope` 映射为 HTTP 422，模型异常和敏感输出统一转人工并映射为 HTTP 202。审计日志和运行时追踪只保存 `thread_id`、状态、安全审查代码和模型统计摘要，不保存用户原始消息、最终回复、Key、完整 Prompt、思维链或供应商响应。
 
+## 6.2 工单工具与租户事务
+
+工单写入不直接发生在 LangGraph 节点内。`TicketTool` 只通过 `SupportRepository` 调用租户作用域的工单创建和状态转换；`TicketWorkflowService` 先运行主图 Guard 和路由，再在同一 Unit of Work 内执行 `ticket.create`、写 `TicketEvent`、`TicketMessage`、`AuditLog`、`RuntimeTrace` 和 `ToolExecution`。
+
+工单状态转换必须通过 `transition_ticket` 状态机。Guard 未通过、业务域不是 `ticket`、跨租户客户或非法状态跳转时都不会创建或更新工单。模型和客服结构化回复不能直接触发工单写入。
+
 ## 7. 当前实际版本
 
 版本以本机 `E:\anaconda3\envs\edu_agent` 环境实际安装结果为准，当前验收记录为：
@@ -107,4 +113,4 @@ Guard 终止时不进入 Supervisor、专属 Agent 或业务工具。退款应�
 
 ## 8. 当前边界
 
-当前实现已经完成多 Agent 图结构、专属子图、客服结构化模型网关、输出安全过滤、工具白名单、退款策略、数据库退款申请、Checkpoint、审批恢复、应用级 Gateway Factory、客户咨询 API、FastAPI 退款/审批接口和统一运行时入口。当前 `run_refund_workflow` 已通过数据库 Unit of Work 写入本地业务状态；HTTP 层使用开发环境租户 Header，正式 JWT/OAuth 尚未接入。外部支付适配器仍未接入，因此“退款申请已持久化”不等于“第三方退款已完成”。RAG、Milvus、SSE 和真实模型 API 冒烟调用不属于本阶段自动验收范围。
+当前实现已经完成多 Agent 图结构、专属子图、客服结构化模型网关、输出安全过滤、工具白名单、退款策略、工单工具与租户事务服务、数据库退款申请、Checkpoint、审批恢复、应用级 Gateway Factory、客户咨询 API、FastAPI 退款/审批接口和统一运行时入口。当前 `run_refund_workflow` 和 `TicketWorkflowService` 均通过数据库 Unit of Work 写入本地业务状态；HTTP 层使用开发环境租户 Header，正式 JWT/OAuth 尚未接入。外部支付适配器仍未接入，因此“退款申请已持久化”不等于“第三方退款已完成”。RAG、Milvus、SSE 和真实模型 API 冒烟调用不属于本阶段自动验收范围。
