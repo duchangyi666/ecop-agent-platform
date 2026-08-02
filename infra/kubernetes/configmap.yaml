@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clouddesk-config
+  namespace: clouddesk
+data:
+  DATABASE_URL: postgresql+asyncpg://app:app@clouddesk-postgres:5432/enterprise_customer_operations
+  MILVUS_URI: http://clouddesk-milvus:19530
+  REDIS_URL: redis://clouddesk-redis:6379/0
+  DEEPSEEK_BASE_URL: https://api.deepseek.com
+  DEEPSEEK_MODEL: deepseek-v4-flash

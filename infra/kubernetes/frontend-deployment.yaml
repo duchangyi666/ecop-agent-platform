@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clouddesk-frontend
+  namespace: clouddesk
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: clouddesk-frontend
+  template:
+    metadata:
+      labels:
+        app: clouddesk-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: registry.example.com/clouddesk/frontend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi

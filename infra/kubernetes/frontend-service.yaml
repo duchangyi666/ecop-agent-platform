@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: clouddesk-frontend
+  namespace: clouddesk
+spec:
+  selector:
+    app: clouddesk-frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80

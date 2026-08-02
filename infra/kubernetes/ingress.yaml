@@ -1,0 +1,26 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: clouddesk-ingress
+  namespace: clouddesk
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+spec:
+  rules:
+    - host: clouddesk.example.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: clouddesk-backend
+                port:
+                  number: 8000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: clouddesk-frontend
+                port:
+                  number: 80

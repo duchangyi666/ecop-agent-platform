@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clouddesk-backend
+  namespace: clouddesk
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: clouddesk-backend
+  template:
+    metadata:
+      labels:
+        app: clouddesk-backend
+    spec:
+      containers:
+        - name: backend
+          image: registry.example.com/clouddesk/backend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: clouddesk-config
+            - secretRef:
+                name: clouddesk-secrets
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi

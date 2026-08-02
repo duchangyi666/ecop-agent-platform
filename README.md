@@ -69,6 +69,10 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 
 GitHub Actions 流水线见 `.github/workflows/ci.yml`，会启动 PostgreSQL/Redis/Milvus/etcd/MinIO，执行迁移、完整测试和迁移漂移检查。
 
+## Kubernetes 与运维
+
+`infra/kubernetes/` 提供 Namespace、ConfigMap、Secret 示例、后端/前端 Deployment、Service 和 Ingress。生产 Secret 应通过外部 Secret 管理注入，不应使用示例文件。数据库备份、恢复、密钥轮换和故障恢复流程见 [`docs/architecture/部署运维手册.md`](docs/architecture/部署运维手册.md)。
+
 ## Worker 与 Scheduler
 
 项目使用 Redis 队列执行异步任务：
