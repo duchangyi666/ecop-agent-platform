@@ -39,9 +39,19 @@ async def create_refund(
         refund_idempotency_key=payload.refund_idempotency_key,
     )
     result = await run_refund_workflow(request, database_url=database_url)
-    if result.status == "awaiting_approval":
+    if result.status in {"awaiting_approval", "human_handoff"}:
         response.status_code = status.HTTP_202_ACCEPTED
-    elif result.status == "rejected":
+    elif result.status in {"rejected", "blocked", "out_of_scope"}:
+        if result.status == "blocked":
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={"code": "security_blocked", "message": result.state.get("reason", "request blocked")},
+            )
+        if result.status == "out_of_scope":
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={"code": "out_of_scope", "message": result.state.get("reason", "request out of scope")},
+            )
         response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
     return RefundResponse.from_result(request_id=context.request_id, result=result)
 

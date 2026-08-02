@@ -66,6 +66,66 @@ class RefundWorkflowService:
                 ).hexdigest(),
             )
             graph_result = await build_main_graph().compile().ainvoke(request.state)
+            guard_outcome = self._guard_terminal_outcome(graph_result)
+            if guard_outcome is not None:
+                workflow_status, next_action, audit_action, reason = guard_outcome
+                await uow.governance.record_runtime_span(
+                    trace_id=trace.id,
+                    node_name="guard_boundary",
+                    status=workflow_status,
+                    input_summary="structured refund request",
+                    output_summary="guard terminal outcome",
+                )
+                audit = await uow.support.append_audit_log(
+                    scope=scope,
+                    actor_id=scope.actor_id,
+                    action=audit_action,
+                    resource_type="workflow",
+                    resource_id=None,
+                    metadata={
+                        "thread_id": request.thread_id,
+                        "workflow_status": workflow_status,
+                    },
+                )
+                state = self._state_with_metadata(
+                    graph_result,
+                    trace_id=trace.id,
+                    audit_event_ids=[audit.id],
+                    next_action=next_action,
+                    reason=reason,
+                )
+                state = self._redact_guard_state(state)
+                await uow.governance.save_workflow_checkpoint(
+                    scope=scope,
+                    thread_id=request.thread_id,
+                    state_summary=_state_to_jsonable(state),
+                    refund_idempotency_key=request.refund_idempotency_key,
+                    status=workflow_status,
+                    trace_id=trace.id,
+                )
+                await uow.governance.complete_runtime_trace(
+                    trace_id=trace.id,
+                    status=workflow_status,
+                    error_summary=reason,
+                )
+                if self.checkpoint_store is not None:
+                    await self.checkpoint_store.save(
+                        request.thread_id,
+                        {
+                            "state": state,
+                            "refund_idempotency_key": request.refund_idempotency_key,
+                            "status": workflow_status,
+                        },
+                    )
+                return WorkflowResult(
+                    thread_id=request.thread_id,
+                    status=workflow_status,
+                    refund_idempotency_key=request.refund_idempotency_key,
+                    state=state,
+                    trace_id=trace.id,
+                    audit_event_ids=[audit.id],
+                )
+
             await uow.governance.record_runtime_span(
                 trace_id=trace.id,
                 node_name="multi_agent_workflow",
@@ -242,6 +302,7 @@ class RefundWorkflowService:
         next_action: str,
         refund_id: UUID | None = None,
         approval_request_id: UUID | None = None,
+        reason: str | None = None,
     ) -> dict[str, Any]:
         state = dict(graph_result)
         state.update(
@@ -251,6 +312,8 @@ class RefundWorkflowService:
                 "next_action": next_action,
             }
         )
+        if reason is not None:
+            state["reason"] = reason
         if refund_id is not None:
             state["refund_id"] = refund_id
         if approval_request_id is not None:
@@ -276,6 +339,72 @@ class RefundWorkflowService:
             approval_request_id=approval_request_id,
         )
         return _state_to_jsonable(state)
+
+    @staticmethod
+    def _guard_terminal_outcome(
+        graph_result: dict[str, Any],
+    ) -> tuple[str, str, str, str] | None:
+        guard_decision = graph_result.get("guard_decision")
+        guard_status = RefundWorkflowService._decision_value(guard_decision, "status")
+        if guard_status is None:
+            return (
+                "blocked",
+                "finish",
+                "input_security_blocked",
+                "安全检查未完成，已阻止业务工具调用",
+            )
+        if guard_status == "block":
+            return (
+                "blocked",
+                "finish",
+                "input_security_blocked",
+                "输入未通过安全检查",
+            )
+        if guard_status == "human_handoff":
+            return (
+                "human_handoff",
+                "human_handoff",
+                "input_security_handoff",
+                "该操作需要人工安全审核",
+            )
+
+        domain_decision = graph_result.get("domain_decision")
+        domain_status = RefundWorkflowService._decision_value(domain_decision, "status")
+        if domain_status == "out_of_scope" or domain_status is None:
+            return (
+                "out_of_scope",
+                "finish",
+                "domain_out_of_scope",
+                "请求超出当前平台支持范围",
+            )
+        if domain_status == "needs_clarification":
+            return (
+                "needs_clarification",
+                "ask_clarification",
+                "domain_clarification_required",
+                "请补充具体业务场景",
+            )
+        if RefundWorkflowService._decision_value(domain_decision, "domain") != "billing":
+            return (
+                "out_of_scope",
+                "finish",
+                "domain_out_of_scope",
+                "退款接口只处理账务业务请求",
+            )
+        return None
+
+    @staticmethod
+    def _decision_value(decision: Any, field: str) -> Any:
+        if isinstance(decision, dict):
+            return decision.get(field)
+        return getattr(decision, field, None)
+
+    @staticmethod
+    def _redact_guard_state(state: dict[str, Any]) -> dict[str, Any]:
+        redacted = dict(state)
+        if "conversation" in redacted:
+            redacted["conversation"] = [{"role": "user", "content": "[REDACTED]"}]
+        return redacted
 
 
 __all__ = ["RefundWorkflowRequest", "RefundWorkflowService"]

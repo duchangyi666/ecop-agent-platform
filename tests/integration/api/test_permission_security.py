@@ -16,7 +16,7 @@ def _refund_payload(payment, prefix: str) -> dict[str, str]:
         "payment_id": str(payment.id),
         "amount": "20.00",
         "refund_idempotency_key": f"permission-{prefix}-{uuid4().hex}",
-        "message": "权限安全测试",
+        "message": "权限安全测试，申请退款",
     }
 
 

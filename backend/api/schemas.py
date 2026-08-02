@@ -33,6 +33,7 @@ class RefundResponse(BaseModel):
     approval_request_id: UUID | None = None
     trace_id: UUID | None = None
     next_action: str | None = None
+    reason: str | None = None
 
     @classmethod
     def from_result(cls, *, request_id: str, result: Any) -> "RefundResponse":
@@ -44,6 +45,7 @@ class RefundResponse(BaseModel):
             approval_request_id=result.approval_request_id,
             trace_id=result.trace_id,
             next_action=result.state.get("next_action"),
+            reason=result.state.get("reason"),
         )
 
 
