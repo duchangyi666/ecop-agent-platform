@@ -219,3 +219,34 @@ async def test_customer_consultation_reports_retrieved_knowledge_evidence_count(
 
     assert response.status_code == 200
     assert response.json()["knowledge_evidence_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_customer_consultation_stream_emits_progress_events(
+    customer_consult_client_factory,
+    api_headers,
+) -> None:
+    gateway = FakeModelGateway(
+        ResponseDraft(
+            answer="您好，这是流式客服回复。",
+            next_action="finish",
+            confidence=0.9,
+        )
+    )
+    payload = _payload("stream")
+
+    with customer_consult_client_factory(gateway) as client:
+        with client.stream(
+            "POST",
+            "/api/v1/customer-consultations/stream",
+            headers=api_headers,
+            json=payload,
+        ) as response:
+            assert response.status_code == 200
+            body = "".join(response.iter_text())
+
+    assert "event: started" in body
+    assert "event: evidence" in body
+    assert "event: completed" in body
+    assert "event: done" in body
+    assert "knowledge_evidence_count" in body

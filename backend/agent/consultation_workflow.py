@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
 from uuid import UUID
@@ -15,6 +16,8 @@ from backend.llm.contracts import ModelUsage
 from backend.llm.gateway import ModelGateway
 from backend.llm.safety import ResponseSafetyDecision
 from backend.rag.retriever import ConsultationKnowledgeRetriever
+
+EventSink = Callable[[str, dict[str, Any]], Awaitable[None]]
 
 
 class CustomerConsultationWorkflowRequest(BaseModel):
@@ -135,15 +138,26 @@ class CustomerConsultationService:
         *,
         model_gateway: ModelGateway,
         knowledge_retriever: ConsultationKnowledgeRetriever | None = None,
+        event_sink: EventSink | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.model_gateway = model_gateway
         self.knowledge_retriever = knowledge_retriever
+        self.event_sink = event_sink
 
     async def run(
         self,
         request: CustomerConsultationWorkflowRequest,
     ) -> CustomerConsultationResult:
+        if self.event_sink is not None:
+            await self.event_sink(
+                "started",
+                {
+                    "thread_id": request.thread_id,
+                    "status": "started",
+                },
+            )
+
         evidence: list[KnowledgeEvidence] = []
         graph_state = request.state
         if self.knowledge_retriever is not None:
@@ -164,12 +178,31 @@ class CustomerConsultationService:
                 graph_state = request.state.model_copy(
                     update={"knowledge_evidence": evidence},
                 )
+        if self.event_sink is not None:
+            await self.event_sink(
+                "evidence",
+                {
+                    "thread_id": request.thread_id,
+                    "count": len(evidence),
+                },
+            )
 
         result = await run_customer_consultation_graph(
             thread_id=request.thread_id,
             state=graph_state,
             model_gateway=self.model_gateway,
         )
+        result = replace(result, knowledge_evidence_count=len(evidence))
+        if self.event_sink is not None:
+            await self.event_sink(
+                "completed",
+                {
+                    "thread_id": request.thread_id,
+                    "status": result.status,
+                    "next_action": result.next_action,
+                    "final_response": result.final_response,
+                },
+            )
         if self.session_factory is None:
             return result
 
@@ -212,7 +245,6 @@ class CustomerConsultationService:
             result,
             trace_id=trace.id,
             audit_event_ids=[audit.id],
-            knowledge_evidence_count=len(evidence),
         )
 
     @staticmethod

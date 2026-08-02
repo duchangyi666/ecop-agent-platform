@@ -55,6 +55,7 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 
 - `GET /healthz`：应用存活检查；
 - `POST /api/v1/customer-consultations`：调用主图生成客户咨询安全回复；
+- `POST /api/v1/customer-consultations/stream`：以 SSE 推送客户咨询开始、证据检索和完成事件；
 - `POST /api/v1/tickets`：创建租户作用域工单；
 - `GET /api/v1/knowledge/search`：检索当前租户 active 知识文档；
 - `POST /api/v1/knowledge/documents`：摄取知识文档、分片并写入 Milvus 向量索引；
@@ -81,6 +82,17 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 项目新增可降级的 RAG 基础层：`POST /api/v1/knowledge/documents` 会把知识内容分片后写入 PostgreSQL `knowledge_chunks`，并同步到 Milvus 向量集合；`GET /api/v1/knowledge/search` 在配置 `MILVUS_URI` 时使用 Milvus 向量召回与 PostgreSQL 关键词检索的 RRF 混合结果，未配置时只使用 PostgreSQL 标题检索。
 
 客户咨询 API 已接入同一检索链路：模型生成前先按当前租户检索知识证据，证据摘要进入模型 Prompt，响应中的 `knowledge_evidence_count` 只报告命中数量，不返回知识原文。
+
+## SSE 进度事件
+
+`POST /api/v1/customer-consultations/stream` 使用 `text/event-stream` 返回事件流：
+
+- `started`：工作流开始；
+- `evidence`：知识证据检索完成，`count` 只报告数量；
+- `completed`：结构化生成和安全审查完成；
+- `done`：最终脱敏摘要。
+
+SSE 不推送模型 Token、思维链、系统 Prompt、Key 或知识原文；断流时取消当前工作流任务。
 
 启动项目专用 Milvus 栈：
 
@@ -130,7 +142,7 @@ $env:DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 $env:DEEPSEEK_MODEL = "deepseek-v4-flash"
 ```
 
-当前阶段只完成模型网关、结构化回复、输出安全边界和 RAG 向量检索基础，尚未接入 SSE、正式身份认证或第三方支付。模型不能直接执行数据库写入和业务工具。
+当前阶段只完成模型网关、结构化回复、输出安全边界、RAG 向量检索基础和 SSE 进度事件，尚未接入正式身份认证或第三方支付。模型不能直接执行数据库写入和业务工具。
 
 为开发用户授予退款权限：
 

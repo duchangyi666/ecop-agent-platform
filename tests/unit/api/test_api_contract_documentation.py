@@ -30,4 +30,5 @@ def test_readme_documents_model_gateway_secret_and_offline_boundaries() -> None:
     assert "MILVUS_URI" in readme
     assert "knowledge.ingest" in readme
     assert "knowledge_evidence_count" in readme
-    assert "尚未接入 SSE、正式身份认证或第三方支付" in readme
+    assert "customer-consultations/stream" in readme
+    assert "尚未接入正式身份认证或第三方支付" in readme
