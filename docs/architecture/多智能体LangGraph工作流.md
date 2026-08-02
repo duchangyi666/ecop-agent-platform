@@ -36,6 +36,7 @@ Supervisor 只负责结构化路由，不直接执行退款、建单或审批操
 
 - `request_id`、`tenant_scope`：请求身份和租户隔离范围；
 - `conversation`、`customer_id`：对话上下文和客户标识；
+- `knowledge_evidence`：客户咨询前按当前租户检索到的知识证据摘要；
 - `guard_decision`、`domain_decision`：输入安全和业务范围的结构化决策；
 - `supervisor_decision`、`next_action`：路由决策；
 - `specialist_result`：专属 Agent 的结构化结果；
@@ -83,7 +84,7 @@ Guard 终止时不进入 Supervisor、专属 Agent 或业务工具。退款应�
 - 显式配置 `DEEPSEEK_API_KEY` 时才返回 `DeepSeekGateway`；
 - FastAPI `create_app(model_gateway=...)` 把网关放入 `app.state`，客户咨询路由通过依赖读取同一个应用级实例。
 
-客户咨询入口为 `POST /api/v1/customer-consultations`，要求开发环境 Header 和 `customer.consult` 权限。应用服务调用主图后返回 `final_response`、`next_action` 和 `response_review` 摘要；输入安全 `block` 与业务范围 `out_of_scope` 映射为 HTTP 422，模型异常和敏感输出统一转人工并映射为 HTTP 202。审计日志和运行时追踪只保存 `thread_id`、状态、安全审查代码和模型统计摘要，不保存用户原始消息、最终回复、Key、完整 Prompt、思维链或供应商响应。
+客户咨询入口为 `POST /api/v1/customer-consultations`，要求开发环境 Header 和 `customer.consult` 权限。应用服务先通过 `ConsultationKnowledgeRetriever` 检索当前租户知识证据，把证据摘要注入客服模型 Prompt，再调用主图；响应返回 `final_response`、`next_action`、`response_review` 和 `knowledge_evidence_count` 摘要。输入安全 `block` 与业务范围 `out_of_scope` 映射为 HTTP 422，模型异常和敏感输出统一转人工并映射为 HTTP 202。审计日志和运行时追踪只保存 `thread_id`、状态、证据数量、安全审查代码和模型统计摘要，不保存用户原始消息、知识原文、最终回复、Key、完整 Prompt、思维链或供应商响应。
 
 ## 6.2 工单工具与租户事务
 
@@ -93,9 +94,9 @@ Guard 终止时不进入 Supervisor、专属 Agent 或业务工具。退款应�
 
 ## 6.3 知识检索工具与租户边界
 
-`KnowledgeRepository` 只查询当前租户 `status="active"` 的 `documents` 记录，匹配标题、外部文档 ID 和来源 URI；`KnowledgeTool` 返回安全的文档摘要，不返回文档正文或原始检索上下文。`KnowledgeWorkflowService` 先运行主图 Guard，确认业务域为 `knowledge` 后再执行检索，并写入 `AuditLog`、`RuntimeTrace` 和 `ToolExecution`。
+`KnowledgeRepository` 只查询当前租户 `status="active"` 的 `documents` 记录；未配置 Milvus 时匹配标题、外部文档 ID 和来源 URI，配置后由 `MilvusKnowledgeVectorStore` 执行租户过滤的向量召回。`KnowledgeTool` 和 `ConsultationKnowledgeRetriever` 返回安全的文档摘要，不返回文档正文或原始检索上下文。`KnowledgeWorkflowService` 先运行主图 Guard，确认业务域为 `knowledge` 后再执行检索，并写入 `AuditLog`、`RuntimeTrace` 和 `ToolExecution`。
 
-当前知识检索是确定性 SQL 检索，不包含向量召回、RAG、Milvus、Embedding 或外部知识服务。检索日志不保存原始查询词，只保存结果数量和文档 ID 摘要。
+当前知识检索已包含 PostgreSQL 确定性降级、Milvus 向量召回、知识摄取和客服证据注入；默认 Embedding 是确定性离线向量，BGE-M3 通过 `BGE_M3_MODEL_PATH` 可选启用。检索日志不保存原始查询词，只保存结果数量和文档 ID 摘要。
 
 HTTP 合同已接入 `POST /api/v1/tickets` 和 `GET /api/v1/knowledge/search`；路由仍复用对应应用服务，不直接让模型执行工单写入或知识检索。
 
@@ -121,4 +122,4 @@ HTTP 合同已接入 `POST /api/v1/tickets` 和 `GET /api/v1/knowledge/search`�
 
 ## 8. 当前边界
 
-当前实现已经完成多 Agent 图结构、专属子图、客服结构化模型网关、输出安全过滤、工具白名单、退款策略、工单工具与租户事务服务、知识检索工具与租户边界、数据库退款申请、Checkpoint、审批恢复、应用级 Gateway Factory、客户咨询 API、FastAPI 退款/审批接口和统一运行时入口。当前 `run_refund_workflow`、`TicketWorkflowService` 和 `KnowledgeWorkflowService` 均通过数据库 Unit of Work 处理本地业务状态；HTTP 层使用开发环境租户 Header，正式 JWT/OAuth 尚未接入。外部支付适配器仍未接入，因此“退款申请已持久化”不等于“第三方退款已完成”。RAG、Milvus、SSE 和真实模型 API 冒烟调用不属于本阶段自动验收范围。
+当前实现已经完成多 Agent 图结构、专属子图、客服结构化模型网关、输出安全过滤、工具白名单、退款策略、工单工具与租户事务服务、RAG 向量知识库、客服证据注入、数据库退款申请、Checkpoint、审批恢复、应用级 Gateway Factory、客户咨询 API、FastAPI 退款/审批接口和统一运行时入口。当前 `run_refund_workflow`、`TicketWorkflowService` 和 `KnowledgeWorkflowService` 均通过数据库 Unit of Work 处理本地业务状态；HTTP 层使用开发环境租户 Header，正式 JWT/OAuth 尚未接入。外部支付适配器仍未接入，因此“退款申请已持久化”不等于“第三方退款已完成”。BGE-M3 默认加载、混合检索、Reranker、SSE 和真实模型 API 冒烟调用不属于本阶段自动验收范围。

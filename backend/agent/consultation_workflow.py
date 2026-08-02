@@ -9,11 +9,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.agent.graphs.main_graph import build_main_graph
-from backend.agent.state import AgentState
+from backend.agent.state import AgentState, KnowledgeEvidence
 from backend.database.unit_of_work import UnitOfWork
 from backend.llm.contracts import ModelUsage
 from backend.llm.gateway import ModelGateway
 from backend.llm.safety import ResponseSafetyDecision
+from backend.rag.retriever import ConsultationKnowledgeRetriever
 
 
 class CustomerConsultationWorkflowRequest(BaseModel):
@@ -32,6 +33,7 @@ class CustomerConsultationResult:
     response_review: ResponseSafetyDecision | None
     model_provider: str | None = None
     model_error_code: str | None = None
+    knowledge_evidence_count: int = 0
     trace_id: UUID | None = None
     audit_event_ids: list[UUID] = field(default_factory=list)
 
@@ -132,17 +134,40 @@ class CustomerConsultationService:
         session_factory: async_sessionmaker[AsyncSession] | None,
         *,
         model_gateway: ModelGateway,
+        knowledge_retriever: ConsultationKnowledgeRetriever | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.model_gateway = model_gateway
+        self.knowledge_retriever = knowledge_retriever
 
     async def run(
         self,
         request: CustomerConsultationWorkflowRequest,
     ) -> CustomerConsultationResult:
+        evidence: list[KnowledgeEvidence] = []
+        graph_state = request.state
+        if self.knowledge_retriever is not None:
+            user_message = next(
+                (
+                    message.content
+                    for message in reversed(request.state.conversation)
+                    if message.role == "user"
+                ),
+                "",
+            )
+            evidence = await self.knowledge_retriever.retrieve(
+                scope=request.state.tenant_scope,
+                query=user_message,
+                limit=5,
+            )
+            if evidence:
+                graph_state = request.state.model_copy(
+                    update={"knowledge_evidence": evidence},
+                )
+
         result = await run_customer_consultation_graph(
             thread_id=request.thread_id,
-            state=request.state,
+            state=graph_state,
             model_gateway=self.model_gateway,
         )
         if self.session_factory is None:
@@ -174,6 +199,7 @@ class CustomerConsultationService:
                     ),
                     "model_provider": result.model_provider,
                     "model_error_code": result.model_error_code,
+                    "knowledge_evidence_count": len(evidence),
                 },
             )
             await uow.governance.complete_runtime_trace(
@@ -186,6 +212,7 @@ class CustomerConsultationService:
             result,
             trace_id=trace.id,
             audit_event_ids=[audit.id],
+            knowledge_evidence_count=len(evidence),
         )
 
     @staticmethod

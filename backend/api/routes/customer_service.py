@@ -13,11 +13,14 @@ from backend.agent.state import create_agent_state
 from backend.api.dependencies import (
     RequestContext,
     get_app_model_gateway,
+    get_knowledge_vector_store,
     get_session_factory_dependency,
     require_permission,
 )
 from backend.api.schemas import CustomerConsultationRequest, CustomerConsultationResponse
 from backend.llm.gateway import ModelGateway
+from backend.rag.retriever import ConsultationKnowledgeRetriever
+from backend.rag.vector_store import KnowledgeVectorStore
 
 router = APIRouter(prefix="/api/v1", tags=["customer-service"])
 
@@ -29,6 +32,7 @@ async def create_customer_consultation(
     context: RequestContext = Depends(require_permission("customer.consult")),
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
     model_gateway: ModelGateway = Depends(get_app_model_gateway),
+    vector_store: KnowledgeVectorStore | None = Depends(get_knowledge_vector_store),
 ) -> CustomerConsultationResponse:
     request = CustomerConsultationWorkflowRequest(
         thread_id=payload.thread_id,
@@ -41,6 +45,10 @@ async def create_customer_consultation(
     result = await CustomerConsultationService(
         session_factory,
         model_gateway=model_gateway,
+        knowledge_retriever=ConsultationKnowledgeRetriever(
+            session_factory,
+            vector_store=vector_store,
+        ),
     ).run(request)
 
     if result.status == "blocked":

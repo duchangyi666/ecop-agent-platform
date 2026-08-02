@@ -18,6 +18,17 @@ class ConversationMessage(BaseModel):
     content: str
 
 
+class KnowledgeEvidence(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    document_id: UUID
+    external_document_id: str
+    title: str
+    source_uri: str | None = None
+    content_snippet: str | None = None
+    score: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
 class AgentState(BaseModel):
     """Shared state schema used by the LangGraph main graph and subgraphs."""
 
@@ -27,6 +38,7 @@ class AgentState(BaseModel):
     tenant_scope: TenantScope
     conversation: list[ConversationMessage] = Field(default_factory=list)
     customer_id: UUID | None = None
+    knowledge_evidence: list[KnowledgeEvidence] = Field(default_factory=list)
     next_action: str = "finish"
     guard_decision: GuardDecision | None = None
     domain_decision: DomainDecision | None = None
@@ -53,4 +65,4 @@ def create_agent_state(*, scope: TenantScope, request_id: UUID, message: str) ->
     )
 
 
-__all__ = ["AgentState", "ConversationMessage", "create_agent_state"]
+__all__ = ["AgentState", "ConversationMessage", "KnowledgeEvidence", "create_agent_state"]

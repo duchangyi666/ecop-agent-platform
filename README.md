@@ -80,6 +80,8 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 
 项目新增可降级的 RAG 基础层：`POST /api/v1/knowledge/documents` 会把知识内容分片后写入 PostgreSQL `knowledge_chunks`，并同步到 Milvus 向量集合；`GET /api/v1/knowledge/search` 在配置 `MILVUS_URI` 时优先使用租户过滤的向量召回，未配置或向量结果为空时回退到 PostgreSQL 标题检索。
 
+客户咨询 API 已接入同一检索链路：模型生成前先按当前租户检索知识证据，证据摘要进入模型 Prompt，响应中的 `knowledge_evidence_count` 只报告命中数量，不返回知识原文。
+
 启动项目专用 Milvus 栈：
 
 ```powershell

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import END, START, StateGraph
 
 from backend.agent.contracts import SpecialistResult
-from backend.agent.state import AgentState
+from backend.agent.state import AgentState, KnowledgeEvidence
 from backend.llm.contracts import ResponseDraft
 from backend.llm.errors import ModelGatewayError
 from backend.llm.fake import FakeModelGateway
@@ -52,9 +53,22 @@ def _last_user_message(state: AgentState) -> str:
     return ""
 
 
-def _prompt_messages(user_message: str) -> tuple[str, str]:
+def _prompt_messages(
+    user_message: str,
+    knowledge_evidence: Sequence[KnowledgeEvidence] | None = None,
+) -> tuple[str, str]:
     messages = _CUSTOMER_SERVICE_PROMPT.format_messages(user_message=user_message)
-    return str(messages[0].content), str(messages[1].content)
+    system_prompt = str(messages[0].content)
+    if knowledge_evidence:
+        evidence_lines = [
+            f"[{item.document_id}] {item.title}: {item.content_snippet or ''}"
+            for item in knowledge_evidence
+        ]
+        system_prompt += (
+            "\n\n可用知识依据（回答必须依据这些内容，未在依据中出现的业务结论不能声称）：\n"
+            + "\n".join(evidence_lines)
+        )
+    return system_prompt, str(messages[1].content)
 
 
 async def _customer_service_model_node(
@@ -62,7 +76,10 @@ async def _customer_service_model_node(
     *,
     model_gateway: ModelGateway,
 ) -> dict[str, Any]:
-    system_prompt, user_prompt = _prompt_messages(_last_user_message(state))
+    system_prompt, user_prompt = _prompt_messages(
+        _last_user_message(state),
+        knowledge_evidence=state.knowledge_evidence,
+    )
     next_call_count = state.model_call_count + 1
 
     try:
@@ -109,7 +126,7 @@ def _response_safety_filter_node(state: AgentState) -> dict[str, Any]:
 
     decision = ResponseSafetyFilter().evaluate(
         state.response_draft,
-        has_evidence=bool(state.response_draft.evidence_ids),
+        has_evidence=bool(state.response_draft.evidence_ids or state.knowledge_evidence),
     )
     result: dict[str, Any] = {
         "response_review": decision,

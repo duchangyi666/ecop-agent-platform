@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from backend.database.models.support import AuditLog
+from backend.database.models.governance import Document
 from backend.llm.contracts import ModelCallError, ResponseDraft
 from backend.llm.errors import ModelGatewayError
 from backend.llm.fake import FakeModelGateway
@@ -33,7 +34,7 @@ async def customer_consult_client_factory(
     await grant_permission(tenant_a_user.id, "customer.consult")
 
     def build(gateway) -> TestClient:
-        app = create_app(model_gateway=gateway)
+        app = create_app(model_gateway=gateway, knowledge_vector_store=None)
         app.dependency_overrides[get_database_url] = lambda: database_url
         app.dependency_overrides[get_session_factory_dependency] = lambda: session_factory
         return TestClient(app)
@@ -176,3 +177,45 @@ async def test_customer_consultation_audit_contains_only_safe_summary(
     assert metadata["thread_id"] == payload["thread_id"]
     assert payload["message"] not in str(metadata)
     assert response.json()["final_response"] not in str(metadata)
+
+
+@pytest.mark.asyncio
+async def test_customer_consultation_reports_retrieved_knowledge_evidence_count(
+    customer_consult_client_factory,
+    api_headers,
+    session_factory,
+    tenant_a,
+) -> None:
+    async with session_factory() as session:
+        session.add(
+            Document(
+                id=uuid4(),
+                tenant_id=tenant_a.id,
+                external_document_id="customer-intro-policy",
+                title="客户咨询一般说明政策",
+                status="active",
+                source_uri="https://docs.example.com/customer-intro-policy",
+                visibility="tenant",
+            )
+        )
+        await session.commit()
+
+    gateway = FakeModelGateway(
+        ResponseDraft(
+            answer="您好，这是基于知识依据的客服回复。",
+            next_action="finish",
+            confidence=0.9,
+        )
+    )
+    payload = _payload("grounded")
+    payload["message"] = "客户咨询一般说明"
+
+    with customer_consult_client_factory(gateway) as client:
+        response = client.post(
+            "/api/v1/customer-consultations",
+            headers=api_headers,
+            json=payload,
+        )
+
+    assert response.status_code == 200
+    assert response.json()["knowledge_evidence_count"] == 1

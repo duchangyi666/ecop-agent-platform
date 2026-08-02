@@ -49,6 +49,7 @@ class CustomerConsultationResponse(BaseModel):
     audit_event_ids: list[UUID] = Field(default_factory=list)
     model_provider: str | None = None
     model_error_code: str | None = None
+    knowledge_evidence_count: int = 0
 
     @classmethod
     def from_result(
@@ -77,6 +78,7 @@ class CustomerConsultationResponse(BaseModel):
             audit_event_ids=list(result.audit_event_ids),
             model_provider=result.model_provider,
             model_error_code=result.model_error_code,
+            knowledge_evidence_count=result.knowledge_evidence_count,
         )
 
 
