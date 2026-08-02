@@ -8,6 +8,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from backend.api.schemas import ErrorResponse, HealthResponse
+from backend.api.routes.approvals import router as approvals_router
 from backend.api.routes.refunds import router as refunds_router
 from backend.domain.common import DomainError
 
@@ -33,6 +34,7 @@ def create_app() -> FastAPI:
         return HealthResponse(status="ok")
 
     app.include_router(refunds_router)
+    app.include_router(approvals_router)
 
     @app.exception_handler(HTTPException)
     async def handle_http_exception(request: Request, exc: HTTPException) -> JSONResponse:

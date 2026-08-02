@@ -30,6 +30,7 @@ async def resume_refund_after_approval(
     approval_request_id: UUID,
     approved: bool,
     actor_id: UUID | None,
+    reason: str | None = None,
 ) -> WorkflowResult:
     actor_scope = TenantScope(
         tenant_id=scope.tenant_id,
@@ -57,11 +58,12 @@ async def resume_refund_after_approval(
                 raise DomainError("workflow checkpoint not found in tenant scope")
 
             action = "approved" if approved else "rejected"
+            action_reason = reason.strip()[:500] if reason and reason.strip() else "approval action submitted by authorized actor"
             await uow.support.append_approval_action(
                 scope=actor_scope,
                 approval_request_id=approval_request_id,
                 action=action,
-                reason="approval action submitted by authorized actor",
+                reason=action_reason,
                 changes={"thread_id": thread_id},
             )
             status = "approved_for_execution" if approved else "rejected"
