@@ -40,6 +40,25 @@ $env:PYTHONNOUSERSITE = "1"
 $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations"
 ```
 
+## HTTP API（开发环境）
+
+启动独立 FastAPI 应用：
+
+```powershell
+$env:PYTHONNOUSERSITE = "1"
+$env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations"
+& E:\anaconda3\envs\edu_agent\python.exe -m uvicorn backend.main:app --reload
+```
+
+当前已提供：
+
+- `GET /healthz`：应用存活检查；
+- `POST /api/v1/refunds`：提交本地退款申请；
+- `POST /api/v1/approvals/{approval_request_id}`：批准或拒绝退款审批；
+- `GET /api/v1/workflows/{thread_id}`：按租户查询脱敏工作流状态。
+
+业务请求需要携带开发环境 Header：`X-Tenant-Id`、`X-Actor-Id`、`X-Actor-Type`，可选 `X-Request-Id`。这些 Header 只用于当前本地开发和集成测试，不等同于生产 JWT/OAuth 认证。接口的详细合同见 [`docs/superpowers/specs/2026-08-02-退款业务HTTP API设计.md`](docs/superpowers/specs/2026-08-02-退款业务HTTP%20API设计.md)。
+
 ## 目录说明
 
 - `backend/domain`：支付、退款、工单和审批状态机
@@ -54,4 +73,4 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 
 普通业务查询必须携带 `TenantScope`；金额使用 `Decimal` 和 `NUMERIC(18, 2)`；退款幂等键按租户隔离；敏感 payload 只保存脱敏摘要。计费 Agent 必须经过策略门禁，未知支付执行状态转人工处理。
 
-退款链路的“完成”仅表示本地 `Refund` 申请、审批动作、审计事件和运行 Checkpoint 已写入 PostgreSQL；当前不调用第三方支付网关，因此不代表第三方资金已经到账。详细时序见 [`docs/architecture/数据库驱动退款审批闭环.md`](docs/architecture/数据库驱动退款审批闭环.md)。
+退款链路的“完成”仅表示本地退款申请、`Refund`、审批动作、审计事件和运行 Checkpoint 已写入 PostgreSQL；当前不调用第三方支付网关，因此不代表第三方资金已经到账。详细时序见 [`docs/architecture/数据库驱动退款审批闭环.md`](docs/architecture/数据库驱动退款审批闭环.md)。
