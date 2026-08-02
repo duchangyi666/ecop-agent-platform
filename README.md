@@ -271,6 +271,12 @@ $env:MILVUS_URI = "http://localhost:19531"
 $env:BGE_M3_MODEL_PATH = "D:\models\BAAI\bge-m3"
 ```
 
+本机已复制 BGE-M3 模型到项目本地目录，可直接使用：
+
+```powershell
+$env:BGE_M3_MODEL_PATH = "E:\ai\enterprise-customer-operations-platform\.worktrees\phase-2-domain-database\models\bge-m3"
+```
+
 开启 BGE-M3 稀疏向量召回（集合名升级为 `ecop_knowledge_chunks_v2`）：
 
 ```powershell
