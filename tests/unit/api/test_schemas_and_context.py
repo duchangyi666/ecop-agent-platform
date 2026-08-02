@@ -1,0 +1,36 @@
+from __future__ import annotations
+
+from uuid import uuid4
+
+import pytest
+from fastapi import HTTPException
+
+from backend.api.dependencies import get_request_context
+from backend.api.schemas import ApprovalActionRequest, RefundCreateRequest
+
+
+def test_request_context_rejects_missing_tenant_header() -> None:
+    with pytest.raises(HTTPException, match="invalid_tenant_context"):
+        get_request_context(
+            x_tenant_id=None,
+            x_actor_id=str(uuid4()),
+            x_actor_type="user",
+            x_request_id=None,
+        )
+
+
+def test_refund_request_requires_positive_amount() -> None:
+    with pytest.raises(ValueError):
+        RefundCreateRequest(
+            thread_id="thread-1",
+            payment_id=uuid4(),
+            amount="0.00",
+            refund_idempotency_key="refund-1",
+            message="申请退款",
+        )
+
+
+def test_approval_request_preserves_bounded_reason() -> None:
+    request = ApprovalActionRequest(thread_id="thread-1", approved=False, reason="证据不足")
+
+    assert request.reason == "证据不足"
