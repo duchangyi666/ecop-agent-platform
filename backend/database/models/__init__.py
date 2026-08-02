@@ -23,6 +23,7 @@ from backend.database.models.governance import (
     RuntimeSpan,
     RuntimeTrace,
     ToolExecution,
+    WorkflowCheckpoint,
 )
 
 __all__ = [
@@ -63,4 +64,5 @@ __all__ = [
     "User",
     "UserRole",
     "ToolExecution",
+    "WorkflowCheckpoint",
 ]

@@ -5,11 +5,12 @@ from decimal import Decimal
 from enum import Enum
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, ForeignKeyConstraint, JSON, String, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, DateTime, Enum as SAEnum, ForeignKey, ForeignKeyConstraint, JSON, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.database.base import Base, TenantAuditMixin, money_type, utc_now
+from backend.database.models.billing import Refund
 from backend.domain.approval import ApprovalStatus
 from backend.domain.ticket import TicketStatus
 
@@ -179,15 +180,26 @@ class ApprovalRequest(Base, TenantAuditMixin):
             ondelete="RESTRICT",
         ),
         ForeignKeyConstraint(
+            ["tenant_id", "refund_id"],
+            ["refunds.tenant_id", "refunds.id"],
+            name="fk_approval_requests_tenant_refund",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
             ["tenant_id", "requested_by_user_id"],
             ["users.tenant_id", "users.id"],
             name="fk_approval_requests_tenant_requested_by_user",
             ondelete="RESTRICT",
         ),
+        CheckConstraint(
+            "ticket_id IS NOT NULL OR refund_id IS NOT NULL",
+            name="ck_approval_requests_ticket_or_refund",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
-    ticket_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False, index=True)
+    ticket_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True, index=True)
+    refund_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True, index=True)
     requested_by_user_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True, index=True)
     action: Mapped[str] = mapped_column(String(100), nullable=False)
     payload_summary: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False, default=dict)
@@ -208,6 +220,7 @@ class ApprovalRequest(Base, TenantAuditMixin):
     checkpoint_reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     ticket: Mapped["Ticket"] = relationship(back_populates="approval_requests")
+    refund: Mapped[Refund | None] = relationship(overlaps="approval_requests,ticket")
     actions: Mapped[list["ApprovalAction"]] = relationship(
         back_populates="approval_request",
         order_by="ApprovalAction.acted_at",
