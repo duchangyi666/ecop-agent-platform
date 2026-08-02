@@ -31,14 +31,14 @@ def _create_high_risk_refund(api_client, payment, headers: dict[str, str]):
 
 @pytest.mark.asyncio
 async def test_rejected_approval_route_persists_reason_and_status(
-    api_client,
+    authorized_api_client,
     session_factory,
     payment,
     api_headers,
 ):
-    created = _create_high_risk_refund(api_client, payment, _high_risk_headers(api_headers))
+    created = _create_high_risk_refund(authorized_api_client, payment, _high_risk_headers(api_headers))
 
-    response = api_client.post(
+    response = authorized_api_client.post(
         f"/api/v1/approvals/{created['approval_request_id']}",
         headers=api_headers,
         json={"thread_id": created["thread_id"], "approved": False, "reason": "证据不足"},
@@ -58,13 +58,13 @@ async def test_rejected_approval_route_persists_reason_and_status(
 
 
 @pytest.mark.asyncio
-async def test_processed_approval_cannot_be_submitted_twice(api_client, payment, api_headers):
-    created = _create_high_risk_refund(api_client, payment, _high_risk_headers(api_headers))
+async def test_processed_approval_cannot_be_submitted_twice(authorized_api_client, payment, api_headers):
+    created = _create_high_risk_refund(authorized_api_client, payment, _high_risk_headers(api_headers))
     approval_url = f"/api/v1/approvals/{created['approval_request_id']}"
     payload = {"thread_id": created["thread_id"], "approved": True, "reason": "证据充分"}
 
-    first = api_client.post(approval_url, headers=api_headers, json=payload)
-    second = api_client.post(approval_url, headers=api_headers, json=payload)
+    first = authorized_api_client.post(approval_url, headers=api_headers, json=payload)
+    second = authorized_api_client.post(approval_url, headers=api_headers, json=payload)
 
     assert first.status_code == 200
     assert first.json()["status"] == "approved_for_execution"

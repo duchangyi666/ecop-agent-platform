@@ -14,7 +14,7 @@ from backend.database.base import TenantScope
 from backend.database.base import Base
 from backend.database.models.billing import Customer, Invoice, Payment, Refund
 from backend.database.models.governance import RuntimeSpan, RuntimeTrace, ToolExecution, WorkflowCheckpoint
-from backend.database.models.identity import Tenant, User
+from backend.database.models.identity import Permission, Role, Tenant, User, UserRole
 from backend.database.models.support import ApprovalAction, ApprovalRequest, AuditLog
 from backend.domain.billing import PaymentStatus
 
@@ -60,6 +60,9 @@ async def _cleanup(factory: async_sessionmaker[AsyncSession], tenant_id: UUID) -
             Payment,
             Invoice,
             Customer,
+            UserRole,
+            Permission,
+            Role,
             User,
         ):
             await session.execute(delete(model).where(model.tenant_id == tenant_id))

@@ -6,9 +6,9 @@ import pytest
 
 
 @pytest.mark.asyncio
-async def test_low_risk_refund_route_persists_refund(api_client, payment, api_headers):
+async def test_low_risk_refund_route_persists_refund(authorized_api_client, payment, api_headers):
     thread_id = f"api-{uuid4().hex}"
-    response = api_client.post(
+    response = authorized_api_client.post(
         "/api/v1/refunds",
         headers=api_headers,
         json={
@@ -34,8 +34,8 @@ async def test_missing_tenant_context_returns_structured_error(api_client):
 
 
 @pytest.mark.asyncio
-async def test_cross_tenant_payment_is_rejected_by_http_boundary(api_client, payment, tenant_b, tenant_a_user):
-    response = api_client.post(
+async def test_cross_tenant_payment_is_rejected_by_http_boundary(authorized_api_client, payment, tenant_b, tenant_a_user):
+    response = authorized_api_client.post(
         "/api/v1/refunds",
         headers={
             "X-Tenant-Id": str(tenant_b.id),
@@ -51,14 +51,14 @@ async def test_cross_tenant_payment_is_rejected_by_http_boundary(api_client, pay
         },
     )
 
-    assert response.status_code == 422
-    assert response.json()["error"]["code"] == "business_rule_rejected"
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "tenant_identity_invalid"
 
 
 @pytest.mark.asyncio
-async def test_workflow_status_hides_raw_checkpoint_state(api_client, payment, api_headers):
+async def test_workflow_status_hides_raw_checkpoint_state(authorized_api_client, payment, api_headers):
     thread_id = f"api-status-{uuid4().hex}"
-    create_response = api_client.post(
+    create_response = authorized_api_client.post(
         "/api/v1/refunds",
         headers=api_headers,
         json={
@@ -71,7 +71,7 @@ async def test_workflow_status_hides_raw_checkpoint_state(api_client, payment, a
     )
     assert create_response.status_code == 200
 
-    response = api_client.get(f"/api/v1/workflows/{thread_id}", headers=api_headers)
+    response = authorized_api_client.get(f"/api/v1/workflows/{thread_id}", headers=api_headers)
 
     assert response.status_code == 200
     body = response.json()

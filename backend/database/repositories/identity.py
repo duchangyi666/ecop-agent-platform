@@ -49,8 +49,10 @@ class IdentityRepository(TenantScopedRepository):
                 User.deleted_at.is_(None),
                 Role.tenant_id == scope.tenant_id,
                 Role.deleted_at.is_(None),
+                Role.status == "active",
                 Permission.tenant_id == scope.tenant_id,
                 Permission.deleted_at.is_(None),
+                Permission.status == "active",
                 Permission.code == permission_code,
             )
             .limit(1)
