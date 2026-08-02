@@ -8,6 +8,7 @@ from uuid import UUID
 from backend.database.models.governance import Document
 from backend.database.models.knowledge import KnowledgeChunk
 from backend.rag.config import RAGSettings, get_rag_settings
+from backend.rag.bge_hybrid import BgeM3HybridEmbedder
 from backend.rag.embedder import TextEmbedder, create_embedder
 from backend.rag.sparse import SparseTextEmbedder, create_sparse_embedder
 
@@ -277,6 +278,15 @@ def create_knowledge_vector_store(
     resolved = settings or get_rag_settings()
     if not resolved.milvus_uri:
         return None
+    if resolved.sparse_vector_enabled and resolved.bge_m3_model_path:
+        hybrid_embedder = BgeM3HybridEmbedder(resolved.bge_m3_model_path)
+        return MilvusKnowledgeVectorStore(
+            uri=resolved.milvus_uri,
+            collection_name=resolved.milvus_collection,
+            embedder=hybrid_embedder,
+            sparse_embedder=hybrid_embedder,
+            timeout=resolved.milvus_timeout,
+        )
     return MilvusKnowledgeVectorStore(
         uri=resolved.milvus_uri,
         collection_name=resolved.milvus_collection,

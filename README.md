@@ -277,6 +277,16 @@ $env:BGE_M3_MODEL_PATH = "D:\models\BAAI\bge-m3"
 $env:BGE_M3_MODEL_PATH = "E:\ai\enterprise-customer-operations-platform\.worktrees\phase-2-domain-database\models\bge-m3"
 ```
 
+真实模型验证脚本：
+
+```powershell
+$env:PYTHONNOUSERSITE = "1"
+$env:MILVUS_URI = "http://localhost:19531"
+& E:\anaconda3\envs\edu_agent\python.exe scripts/verify_bge_m3.py
+```
+
+本机已通过真实模型验证：BGE-M3 输出维度 1024，dense 向量 1024，稀疏向量 17 个词项权重，Milvus Dense + Sparse Hybrid Search 命中测试文档。
+
 开启 BGE-M3 稀疏向量召回（集合名升级为 `ecop_knowledge_chunks_v2`）：
 
 ```powershell

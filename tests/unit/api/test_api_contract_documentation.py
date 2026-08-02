@@ -53,5 +53,6 @@ def test_readme_documents_model_gateway_secret_and_offline_boundaries() -> None:
     assert "SPARSE_VECTOR_ENABLED" in readme
     assert "ecop_knowledge_chunks_v2" in readme
     assert "models\\bge-m3" in readme
+    assert "scripts/verify_bge_m3.py" in readme
     assert "infra/kubernetes/" in readme
     assert "部署运维手册" in readme
