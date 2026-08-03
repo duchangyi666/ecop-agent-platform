@@ -85,20 +85,24 @@ PERMISSION_CODES = (
 # The permission model scopes each code to a single role per tenant
 # (UniqueConstraint on tenant_id + code). PERMISSION_OWNER assigns each code
 # to the role that carries it; users gain access through their user_roles.
+# Because a code can only belong to one role, seed users hold composite
+# role sets (see CUSTOMER_ROLE_SET / SUPPORT_ROLE_SET below) so every actor
+# receives the read/operate/approve capabilities the console needs.
 PERMISSION_OWNER: dict[str, str] = {
-    # customer-facing capabilities
+    # customer-facing capabilities (also granted to support users via
+    # SUPPORT_ROLE_SET so agents can read tickets/conversations)
     "customer.consult": "customer_user",
     "conversation.create": "customer_user",
     "conversation.read": "customer_user",
     "conversation.write": "customer_user",
     "ticket.read": "customer_user",
-    "approval.read": "customer_admin",
     # support delivery
     "ticket.create": "support_agent",
     "ticket.update": "support_agent",
     "knowledge.search": "support_agent",
     "refund.request": "support_agent",
     "runtime.read": "support_agent",
+    "approval.read": "support_manager",
     # management / review
     "knowledge.ingest": "support_manager",
     "knowledge.delete": "support_manager",
@@ -107,8 +111,11 @@ PERMISSION_OWNER: dict[str, str] = {
     "evaluation.run": "finance_reviewer",
 }
 
-# A user holding one of these roles is additionally granted the support
-# roles listed, approximating platform-wide access within the RBAC model.
+# Role sets applied to each seeded user so they can exercise the console.
+CUSTOMER_ROLE_SET = ("customer_user",)
+CUSTOMER_ADMIN_EXTRA = ("customer_admin",)
+SUPPORT_ROLE_SET = ("support_agent", "customer_user")
+SUPPORT_MANAGER_EXTRA = ("support_manager",)
 TENANT_ADMIN_COMPOSITE = ("support_manager", "finance_reviewer", "customer_admin")
 
 ROLE_NAMES = {

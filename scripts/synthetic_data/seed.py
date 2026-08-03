@@ -78,8 +78,11 @@ from scripts.synthetic_data.config import (
     PLAN_CATALOG,
     POLICY_POOL,
     REFUND_STATUSES,
+    CUSTOMER_ADMIN_EXTRA,
+    CUSTOMER_ROLE_SET,
     ROLE_NAMES,
-    SUPPORT_ROLES,
+    SUPPORT_MANAGER_EXTRA,
+    SUPPORT_ROLE_SET,
     SUPPORT_TIERS,
     SUBJECT_POOL,
     TENANT_ADMIN_COMPOSITE,
@@ -228,11 +231,15 @@ async def _seed_tenant(
     permissions: list[Permission] = []
     for user in data.users:
         if user in data.customer_users:
-            role_codes: set[str] = {"customer_admin" if rng.random() < 0.2 else "customer_user"}
+            role_codes = set(CUSTOMER_ROLE_SET)
+            if rng.random() < 0.2:
+                role_codes.update(CUSTOMER_ADMIN_EXTRA)
         else:
-            role_codes = {rng.choice(SUPPORT_ROLES)}
-            # A small share of support users behave as tenant admins by holding
-            # the composite of management/review roles.
+            # Support staff always carry the customer-facing read role so the
+            # ticket/conversation console works, plus operate roles.
+            role_codes = set(SUPPORT_ROLE_SET)
+            if rng.random() < 0.3:
+                role_codes.update(SUPPORT_MANAGER_EXTRA)
             if rng.random() < 0.05:
                 role_codes.update(TENANT_ADMIN_COMPOSITE)
         for role_code in role_codes:
@@ -525,6 +532,8 @@ async def _seed_tickets(
             linked_refund = refund_by_payment.get(rng.choice(payment_ids))
             action = "refund.execute" if linked_refund is not None else "ticket.resolve"
             amount = linked_refund.amount if linked_refund is not None else None
+            decided = rng.random() < 0.6
+            decision = rng.choice(("approved", "rejected")) if decided else None
             approval = ApprovalRequest(
                 id=uuid4(),
                 tenant_id=tenant.id,
@@ -537,25 +546,51 @@ async def _seed_tickets(
                 amount=amount,
                 risk_level="medium" if amount is None or amount < 500 else "high",
                 approval_role="support_manager" if amount is None or amount < 5000 else "finance_reviewer",
-                status="pending",
+                status=decision or "pending",
                 expires_at=utc_now() + timedelta(days=2),
                 checkpoint_reference=None,
             )
             approvals.append(approval)
             session.add(approval)
             await session.flush()
-            if rng.random() < 0.6:
+            if decision is not None:
                 approval_actions.append(
                     ApprovalAction(
                         id=uuid4(),
                         tenant_id=tenant.id,
                         approval_request_id=approval.id,
                         actor_id=rng.choice(data.support_users).id,
-                        action=rng.choice(("approved", "rejected")),
+                        action=decision,
                         reason="依据退款政策与证据进行审批",
                         changes_summary={},
                     )
                 )
+            else:
+                # Pending approvals must reference a live workflow checkpoint
+                # so resume_refund_after_approval can restore and revalidate
+                # business state (spec: human-in-the-loop resume).
+                checkpoint_thread = f"cp-{approval.id}"
+                session.add(
+                    WorkflowCheckpoint(
+                        id=uuid4(),
+                        tenant_id=tenant.id,
+                        thread_id=checkpoint_thread,
+                        state_summary={
+                            "approval_request_id": str(approval.id),
+                            "ticket_id": str(ticket.id),
+                            "action": action,
+                            "status": "pending_approval",
+                        },
+                        refund_idempotency_key=(
+                            linked_refund.idempotency_key
+                            if linked_refund is not None
+                            else f"checkpoint-{approval.id}"
+                        ),
+                        status="pending_approval",
+                        trace_id=None,
+                    )
+                )
+                approval.checkpoint_reference = checkpoint_thread
 
     session.add_all(tickets)
     session.add_all(events)
