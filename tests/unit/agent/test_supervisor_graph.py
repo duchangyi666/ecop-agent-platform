@@ -41,9 +41,12 @@ def test_supervisor_cannot_route_to_unregistered_agent() -> None:
 async def test_main_graph_executes_each_specialist_route() -> None:
     graph = build_main_graph().compile()
 
+    # Consultation-style questions ("怎么查", "政策") are answered by the
+    # customer-service agent, which grounds replies in RAG evidence; the
+    # knowledge agent is a placeholder route kept for direct retrieval flows.
     cases = {
         "客户咨询": "customer_service",
-        "知识库政策怎么查": "knowledge",
+        "知识库政策怎么查": "customer_service",
         "我要提交工单": "ticket",
         "查看审批状态": "approval",
     }
