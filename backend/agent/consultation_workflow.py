@@ -192,6 +192,16 @@ class CustomerConsultationService:
                 {
                     "thread_id": request.thread_id,
                     "count": len(evidence),
+                    "results": [
+                        {
+                            "document_id": str(item.document_id),
+                            "title": item.title,
+                            "snippet": (item.content_snippet or "")[:200],
+                            "score": item.score,
+                            "source": item.source_uri,
+                        }
+                        for item in evidence
+                    ],
                 },
             )
 

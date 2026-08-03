@@ -716,10 +716,69 @@ def _past_days(days: int) -> datetime:
     return utc_now() - timedelta(days=days)
 
 
+# Topic-specific knowledge content so retrieval matches the right document
+# (refund policy queries hit the refund document, not a generic FAQ chunk).
+_DOCUMENT_CONTENT: dict[str, list[str]] = {
+    "退款政策文档": [
+        "重复扣费退款：同一账单在 30 分钟内出现两笔相同金额扣款，客户可申请退款其中一笔。",
+        "自动退款上限 500 元；500 至 5000 元需客服主管审批；5000 元以上需财务复核。",
+        "已成功退款过的支付流水不接受重复退款申请，系统按幂等键拦截。",
+        "退款申请需提供支付流水号、扣费发生时间与金额，一般 1-3 个工作日到账。",
+        "政策生效日期以最新发布版本为准，冲突时优先采纳当前生效版本。",
+    ],
+    "SLA 支持等级文档": [
+        "标准支持：首次响应 30 分钟内，高优先级故障 24 小时内解决。",
+        "高级支持：首次响应 15 分钟内，严重故障 4 小时内解决。",
+        "企业版客户享有 7x24 小时专属支持渠道，故障自动升级。",
+        "SLA 受损会按服务赔偿规则补偿服务时长。",
+    ],
+    "账户与安全常见问题": [
+        "连续 5 次登录失败会锁定账户，需管理员在控制台解锁。",
+        "MFA 验证码无法收到时，可联系客服重置 MFA 绑定。",
+        "企业管理员可以重置成员密码并调整角色与权限。",
+        "新增成员通过邀请链接加入，过期链接需重新生成。",
+    ],
+    "计费与发票常见问题": [
+        "发票抬头与税号可以在账单页面修改，修改后重新开具。",
+        "订阅取消后，剩余周期按比例退还未使用费用。",
+        "支付失败会自动重试 3 次，之后生成待支付账单。",
+        "账单金额异常时，客服会核对支付流水并出具对账单。",
+    ],
+    "API 集成手册": [
+        "API 使用 Bearer Token 认证，每分钟限流 60 次。",
+        "请求超时默认 30 秒，超时可重试并携带幂等键避免重复提交。",
+        "批量同步建议使用分页，每页最多 100 条。",
+        "回调签名使用 HMAC-SHA256，验签失败的事件进入死信队列。",
+    ],
+    "Webhook 事件说明": [
+        "Webhook 投递失败按指数退避重试 5 次，之后进入死信队列。",
+        "事件包含唯一 event_id，消费者应按 event_id 去重。",
+        "订阅事件需在控制台配置回调地址并验证签名。",
+    ],
+    "服务故障应急手册": [
+        "重大故障触发自动升级，受损客户在 30 分钟内收到通知。",
+        "故障等级分为 P1 严重、P2 高、P3 中，P1 需立即响应。",
+        "恢复后需提供故障报告与赔偿说明。",
+    ],
+    "数据同步失败处置手册": [
+        "数据同步失败先检查源系统 API 状态与限流。",
+        "确认后可手动触发从失败点续传，保证幂等避免重复写入。",
+        "同步任务支持重试队列与失败告警。",
+    ],
+}
+
+
 async def _seed_documents(session: AsyncSession, data: _TenantData, rng: random.Random, profile) -> None:
     tenant = data.tenant
+    # Every tenant always carries the two core policy documents so refund and
+    # SLA queries reliably hit relevant knowledge.
+    core_titles = ("退款政策文档", "SLA 支持等级文档")
     for idx in range(profile.documents_per_tenant):
-        source_type, title_base = rng.choice(DOCUMENT_SOURCES)
+        if idx < len(core_titles):
+            title_base = core_titles[idx]
+            source_type = "policy"
+        else:
+            source_type, title_base = rng.choice(DOCUMENT_SOURCES)
         title = f"{title_base} {idx + 1}"
         visibility = rng.choice(DOCUMENT_VISIBILITIES)
         document = Document(
@@ -735,12 +794,9 @@ async def _seed_documents(session: AsyncSession, data: _TenantData, rng: random.
         await session.flush()
         data.documents.append(document)
         chunks: list[KnowledgeChunk] = []
-        content_lines = [
-            f"# {title}",
-            f"本文件属于 {source_type} 类型，适用于 {tenant.name}。",
-            "CloudDesk 企业协作平台为客户提供账户、账单、技术支持与 SLA 服务。",
-            "政策生效日期以最新发布版本为准，冲突时优先采纳当前生效版本。",
-        ]
+        content_lines = [f"# {title}"] + list(
+            _DOCUMENT_CONTENT.get(title_base, ["本文件为 CloudDesk 相关业务说明。"] * 3)
+        )
         for chunk_index, line in enumerate(content_lines):
             chunks.append(
                 KnowledgeChunk(

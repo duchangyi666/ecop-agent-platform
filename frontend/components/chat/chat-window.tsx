@@ -42,6 +42,9 @@ export function ChatWindow() {
 
   const evidenceRaw = events.find((e) => e.event === "evidence")?.data.count;
   const evidenceCount = typeof evidenceRaw === "number" ? evidenceRaw : 0;
+  const evidenceResults = events.find((e) => e.event === "evidence")?.data.results as
+    | Array<{ title: string; snippet?: string; score?: number | null; source?: string | null }>
+    | undefined;
 
   return (
     <div className="flex h-full min-h-0">
@@ -202,7 +205,30 @@ export function ChatWindow() {
               <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 检索证据
               </h3>
-              <p className="mt-1.5 text-sm">{evidenceCount} 条相关知识</p>
+              {evidenceResults && evidenceResults.length > 0 ? (
+                <ul className="mt-2 space-y-2">
+                  {evidenceResults.map((result, index) => (
+                    <li key={index} className="rounded-md border border-border bg-background p-2.5">
+                      <p className="text-sm font-medium leading-snug">{result.title}</p>
+                      {result.snippet && (
+                        <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                          {result.snippet}
+                        </p>
+                      )}
+                      {typeof result.score === "number" && (
+                        <p className="mt-1 text-[11px] tabular-nums text-muted-foreground">
+                          相关度 {result.score.toFixed(3)}
+                          {result.source ? ` · ${result.source}` : ""}
+                        </p>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-1.5 text-sm text-muted-foreground">
+                  {evidenceCount > 0 ? `${evidenceCount} 条相关知识` : "暂未检索到相关知识"}
+                </p>
+              )}
             </div>
             <div>
               <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
