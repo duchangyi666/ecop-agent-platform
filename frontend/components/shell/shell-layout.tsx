@@ -1,8 +1,8 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   Activity,
   BookOpen,
@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useAuthStore } from "@/lib/auth-store";
+import { IdentityPanel } from "./identity-panel";
 import { IdentitySwitcher } from "./identity-switcher";
 import { ThemeToggle } from "./theme-toggle";
 
@@ -51,19 +52,25 @@ const NAV: Record<string, Array<{ href: string; label: string; icon: LucideIcon 
 
 export function ShellLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const router = useRouter();
   const identity = useAuthStore((state) => state.identity);
+  // SSR always renders the loader (no localStorage), so gate the real shell
+  // behind client mount to avoid hydration mismatch. A missing identity is
+  // then shown as an inline picker instead of navigating — router.replace
+  // inside a layout is unreliable in the App Router and caused a stuck
+  // "确认身份" screen.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
-  useEffect(() => {
-    if (!identity) router.replace("/identity");
-  }, [identity, router]);
-
-  if (!identity) {
+  if (!mounted) {
     return (
       <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
         正在确认身份…
       </div>
     );
+  }
+
+  if (!identity) {
+    return <IdentityPanel />;
   }
 
   const segment = pathname.split("/")[1] ?? "portal";
