@@ -333,6 +333,28 @@ $env:MILVUS_URI = "http://localhost:19531"
 
 本机已通过真实模型验证：BGE-M3 输出维度 1024，dense 向量 1024，稀疏向量 17 个词项权重，Milvus Dense + Sparse Hybrid Search 命中测试文档。
 
+### Cross-Encoder 精排与检索评测
+
+`scripts/evaluate_retrieval.py` 对多个租户的评测用例离线计算 Dense、Hybrid 融合与 Cross-Encoder 精排三路指标的 Recall@K、Precision@K、MRR、NDCG。真实 BGE Reranker 模型已下载到 `models/bge-reranker-base`（通过本地代理），通过 `RERANKER_MODEL_PATH` 指定：
+
+```powershell
+$env:PYTHONNOUSERSITE = "1"
+$env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations"
+$env:MILVUS_URI = "http://localhost:19531"
+$env:BGE_M3_MODEL_PATH = "E:\ai\enterprise-customer-operations-platform\.worktrees\phase-2-domain-database\models\bge-m3"
+$env:RERANKER_MODEL_PATH = "E:\ai\enterprise-customer-operations-platform\.worktrees\phase-2-domain-database\models\bge-reranker-base"
+& E:\anaconda3\envs\edu_agent\python.exe scripts/evaluate_retrieval.py --tenant-ids <uuid1> <uuid2> ... --limit-cases 9
+```
+
+当前 5 个租户 45 个检索用例的实测结果：
+
+| 指标 | Dense | Hybrid | Reranked |
+| --- | --- | --- | --- |
+| MRR | 0.8185 | 0.7926 | **0.8481** |
+| NDCG@10 | 0.8644 | 0.8456 | **0.8876** |
+
+Cross-Encoder 精排相对 RRF 融合 MRR +0.056、NDCG@10 +0.042，验证真实 BGE Reranker 已接入检索链路。
+
 开启 BGE-M3 稀疏向量召回（集合名升级为 `ecop_knowledge_chunks_v2`）：
 
 ```powershell
