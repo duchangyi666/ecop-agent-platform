@@ -16,7 +16,7 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from backend.agent.state import KnowledgeEvidence
+from backend.agent.state import ConversationMessage, KnowledgeEvidence
 from backend.agent.tools.billing import BillingTool, RefundToolRequest
 from backend.agent.tools.ticket import TicketCreateRequest, TicketTool
 from backend.database.base import TenantScope
@@ -25,9 +25,13 @@ from backend.domain.common import DomainError
 from backend.llm.gateway import ModelGateway
 
 _ACTION_SYSTEM_PROMPT = (
-    "你是 CloudDesk 客服意图执行器。判断用户当前这句话要做什么，只输出 JSON。"
+    "你是 CloudDesk 客服意图执行器。结合对话历史判断用户当前这句话要做什么，只输出 JSON。"
     "action 取值：answer(仅需依据知识回答)、request_refund(申请/办理退款)、"
     "create_ticket(创建/提交工单)、list_payments(查询我的扣费/支付记录)。"
+    "ready 表示信息是否足够立即执行该动作：若用户只是提出意图但缺少必要细节"
+    "（例如只说“帮我建个工单”却没说是什么问题），ready=false 并在 question 里"
+    "只问一个最必要的澄清问题；若历史对话或当前消息已包含具体细节，ready=true 并"
+    "在 subject 里概括工单主题。退款可按账户最近一笔成功支付办理，通常 ready=true。"
 )
 
 
@@ -35,6 +39,8 @@ class ActionDecision(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     action: Literal["answer", "request_refund", "create_ticket", "list_payments"] = "answer"
+    ready: bool = True
+    question: Optional[str] = Field(default=None, max_length=300)
     subject: Optional[str] = Field(default=None, max_length=200)
     priority: Literal["low", "medium", "high", "urgent"] = "medium"
     note: Optional[str] = Field(default=None, max_length=300)
@@ -53,11 +59,21 @@ class ConversationActionExecutor:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self.session_factory = session_factory
 
-    async def decide(self, gateway: ModelGateway, user_message: str) -> ActionDecision:
+    async def decide(
+        self,
+        gateway: ModelGateway,
+        user_message: str,
+        conversation: list[ConversationMessage] | None = None,
+    ) -> ActionDecision:
+        lines: list[str] = []
+        for message in conversation or []:
+            speaker = "用户" if message.role == "user" else "客服"
+            lines.append(f"{speaker}：{message.content}")
+        user_prompt = "\n".join(lines) or user_message
         try:
             draft, _ = await gateway.generate_structured(
                 system_prompt=_ACTION_SYSTEM_PROMPT,
-                user_prompt=user_message,
+                user_prompt=user_prompt,
                 response_model=ActionDecision,
             )
             return draft

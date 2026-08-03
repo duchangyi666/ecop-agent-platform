@@ -210,36 +210,55 @@ class CustomerConsultationService:
         # turn is a pure question or a real business request; the executor then
         # performs it against PostgreSQL and the outcome is grounded into the
         # answer and surfaced as an evidence card.
+        clarification: str | None = None
         if self.session_factory is not None:
             executor = ConversationActionExecutor(self.session_factory)
-            decision = await executor.decide(self.model_gateway, user_message)
+            decision = await executor.decide(
+                self.model_gateway,
+                user_message,
+                conversation=request.state.conversation,
+            )
             if decision.action != "answer":
-                action_result = await executor.execute(
-                    scope=request.state.tenant_scope,
-                    decision=decision,
-                    user_message=user_message,
-                    thread_id=request.thread_id,
-                )
-                if action_result is not None:
-                    evidence = [*evidence, action_to_evidence(action_result)]
-                    graph_state = request.state.model_copy(
-                        update={"knowledge_evidence": evidence}
+                if not decision.ready and decision.question:
+                    # Not enough information yet: ask one clarifying question
+                    # instead of executing the business action blindly.
+                    clarification = decision.question
+                else:
+                    action_result = await executor.execute(
+                        scope=request.state.tenant_scope,
+                        decision=decision,
+                        user_message=user_message,
+                        thread_id=request.thread_id,
                     )
-                    if self.event_sink is not None:
-                        await self.event_sink(
-                            "action",
-                            {
-                                "thread_id": request.thread_id,
-                                "action": action_result.action,
-                                "summary": action_result.summary,
-                            },
+                    if action_result is not None:
+                        evidence = [*evidence, action_to_evidence(action_result)]
+                        graph_state = request.state.model_copy(
+                            update={"knowledge_evidence": evidence}
                         )
+                        if self.event_sink is not None:
+                            await self.event_sink(
+                                "action",
+                                {
+                                    "thread_id": request.thread_id,
+                                    "action": action_result.action,
+                                    "summary": action_result.summary,
+                                },
+                            )
 
-        result = await run_customer_consultation_graph(
-            thread_id=request.thread_id,
-            state=graph_state,
-            model_gateway=self.model_gateway,
-        )
+        if clarification is not None:
+            result = CustomerConsultationResult(
+                thread_id=request.thread_id,
+                status="needs_clarification",
+                next_action="ask_clarification",
+                final_response=clarification,
+                response_review=None,
+            )
+        else:
+            result = await run_customer_consultation_graph(
+                thread_id=request.thread_id,
+                state=graph_state,
+                model_gateway=self.model_gateway,
+            )
         result = replace(result, knowledge_evidence_count=len(evidence))
         if self.event_sink is not None:
             await self.event_sink(
