@@ -188,6 +188,7 @@ class MilvusKnowledgeVectorStore:
             self._client.search,
             self._collection,
             data=[embedding],
+            anns_field="embedding",
             limit=limit,
             filter=f'tenant_id == "{tenant_id}"',
             output_fields=self._output_fields(),

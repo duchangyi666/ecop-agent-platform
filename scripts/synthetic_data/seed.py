@@ -702,7 +702,6 @@ async def _seed_documents(session: AsyncSession, data: _TenantData, rng: random.
         chunks: list[KnowledgeChunk] = []
         content_lines = [
             f"# {title}",
-            "",
             f"本文件属于 {source_type} 类型，适用于 {tenant.name}。",
             "CloudDesk 企业协作平台为客户提供账户、账单、技术支持与 SLA 服务。",
             "政策生效日期以最新发布版本为准，冲突时优先采纳当前生效版本。",
@@ -934,45 +933,52 @@ async def _seed_evaluation(session: AsyncSession, data: _TenantData, profile, sc
         datasets.append(dataset)
 
     # Weighted dataset distribution so retrieval cases (needed for RAG
-    # evaluation) receive a meaningful share of the budget.
-    dataset_pool = [
-        dataset
-        for dataset, weight in zip(datasets, EVALUATION_DATASET_WEIGHTS)
-        for _ in range(weight)
+    # evaluation) receive a meaningful share of the budget. Each dataset
+    # gets weight/total of the budget; leftover cases go to retrieval.
+    total_weight = sum(EVALUATION_DATASET_WEIGHTS)
+    per_dataset_counts = [
+        max(1, profile.evaluation_cases_per_tenant * weight // total_weight)
+        for weight in EVALUATION_DATASET_WEIGHTS
     ]
-    remaining = profile.evaluation_cases_per_tenant
+    leftover = profile.evaluation_cases_per_tenant - sum(per_dataset_counts)
+    if leftover > 0:
+        retrieval_index = next(
+            index
+            for index, dataset in enumerate(datasets)
+            if dataset.dataset_code == "retrieval"
+        )
+        per_dataset_counts[retrieval_index] += leftover
     scenario_count = len(scenario_pool)
     case_seq = 0
-    while remaining > 0:
-        remaining -= 1
-        case_seq += 1
-        dataset = dataset_pool[case_seq % len(dataset_pool)]
-        if dataset.dataset_code == "retrieval" and data.documents:
-            # Retrieval cases carry document_ids ground truth derived from
-            # the tenant's own knowledge documents.
-            document = data.documents[(case_seq - 1) % len(data.documents)]
-            input_text = _document_query(document.title)
-            expected = {"document_ids": [str(document.id)]}
-            tags = ["retrieval", "synthetic"]
-        else:
-            scenario = scenario_pool[(case_seq - 1) % scenario_count]
-            input_text = scenario["user_message"]
-            expected = {
-                "tags": scenario["tags"],
-                "expectation": scenario["expectation"],
-            }
-            tags = list(scenario["tags"])
-        session.add(
-            EvaluationCase(
-                id=uuid4(),
-                tenant_id=tenant.id,
-                dataset_id=dataset.id,
-                case_key=f"{dataset.dataset_code}-{tenant.slug}-{case_seq}",
-                input_summary=input_text[:2000],
-                expected_summary=expected,
-                tags=tags,
+    for dataset, dataset_count in zip(datasets, per_dataset_counts):
+        for _ in range(dataset_count):
+            case_seq += 1
+            if dataset.dataset_code == "retrieval" and data.documents:
+                # Retrieval cases carry document_ids ground truth derived from
+                # the tenant's own knowledge documents.
+                document = data.documents[(case_seq - 1) % len(data.documents)]
+                input_text = _document_query(document.title)
+                expected = {"document_ids": [str(document.id)]}
+                tags = ["retrieval", "synthetic"]
+            else:
+                scenario = scenario_pool[(case_seq - 1) % scenario_count]
+                input_text = scenario["user_message"]
+                expected = {
+                    "tags": scenario["tags"],
+                    "expectation": scenario["expectation"],
+                }
+                tags = list(scenario["tags"])
+            session.add(
+                EvaluationCase(
+                    id=uuid4(),
+                    tenant_id=tenant.id,
+                    dataset_id=dataset.id,
+                    case_key=f"{dataset.dataset_code}-{tenant.slug}-{case_seq}",
+                    input_summary=input_text[:2000],
+                    expected_summary=expected,
+                    tags=tags,
+                )
             )
-        )
 
 
 # ---------------------------------------------------------------------------
