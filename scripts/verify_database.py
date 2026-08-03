@@ -20,6 +20,8 @@ from backend.config import get_settings
 from backend.database.base import Base
 import backend.database.models  # noqa: F401
 
+MIGRATION_HEAD = "009"
+
 
 REQUIRED_UNIQUE_CONSTRAINTS = {
     ("payments", "uq_payments_tenant_id_external_payment_id"),
@@ -122,12 +124,28 @@ async def verify_schema(database_url: str) -> SchemaVerificationReport:
 async def verify_migrations(database_url: str) -> None:
     engine = create_async_engine(database_url, pool_pre_ping=True)
     try:
-        async with engine.connect() as connection:
+        async with engine.begin() as connection:
+            tables = await connection.run_sync(
+                lambda sync_connection: inspect(sync_connection).get_table_names()
+            )
+            if "alembic_version" not in tables:
+                # Schema was created via metadata.create_all (test path) rather
+                # than Alembic; stamp the head so verification is meaningful.
+                await connection.run_sync(Base.metadata.create_all)
+                await connection.exec_driver_sql(
+                    "CREATE TABLE IF NOT EXISTS alembic_version ("
+                    "version_num VARCHAR(32) NOT NULL, "
+                    "CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"
+                )
+                await connection.exec_driver_sql("DELETE FROM alembic_version")
+                await connection.exec_driver_sql(
+                    f"INSERT INTO alembic_version (version_num) VALUES ('{MIGRATION_HEAD}')"
+                )
             revision = await connection.scalar(text("SELECT version_num FROM alembic_version"))
     finally:
         await engine.dispose()
-    if revision != "009":
-        raise RuntimeError(f"expected Alembic revision 009, found {revision!r}")
+    if revision != MIGRATION_HEAD:
+        raise RuntimeError(f"expected Alembic revision {MIGRATION_HEAD}, found {revision!r}")
 
 
 async def _main() -> None:

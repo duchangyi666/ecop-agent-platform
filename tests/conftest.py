@@ -1,17 +1,39 @@
+import asyncio
 import os
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy import inspect
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.config import get_settings
+from backend.database.base import Base
 from backend.database.session import get_session_factory
+import backend.database.models  # noqa: F401
 
 pytest_plugins = ("tests.integration.database.conftest",)
 
 
+def _ensure_schema(url: str) -> None:
+    async def run() -> None:
+        engine = create_async_engine(url, pool_pre_ping=True)
+        try:
+            async with engine.begin() as connection:
+                tables = await connection.run_sync(
+                    lambda sync_connection: inspect(sync_connection).get_table_names()
+                )
+                if "tenants" not in tables:
+                    await connection.run_sync(Base.metadata.create_all)
+        finally:
+            await engine.dispose()
+
+    asyncio.run(run())
+
+
 @pytest.fixture
 def database_url() -> str:
-    return get_settings().database_url
+    url = get_settings().database_url
+    _ensure_schema(url)
+    return url
 
 
 @pytest.fixture
