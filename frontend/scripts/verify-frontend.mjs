@@ -43,14 +43,14 @@ try {
   console.log("PASS: portal consult SSE stream rendered");
   await page.screenshot({ path: "scripts/verify-consult.png", fullPage: true });
 
-  // 6. Workspace renders ticket queue
-  await page.goto(`${baseUrl}/workspace`, { waitUntil: "domcontentloaded" });
+  // 6. Navigate via the top bar to the workspace and admin consoles
+  await page.click("text=客服工作台", { timeout: 20000 });
   await page.waitForSelector("text=工单队列", { timeout: 20000 });
   console.log("PASS: workspace ticket queue rendered");
 
-  // 7. Admin overview renders (customer identity may hit permission states)
-  await page.goto(`${baseUrl}/admin`, { waitUntil: "domcontentloaded" });
+  await page.click("text=管理控制台", { timeout: 20000 });
   await page.waitForSelector("text=管理控制台", { timeout: 20000 });
+  await page.waitForSelector("text=后端服务", { timeout: 20000 });
   console.log("PASS: admin overview rendered");
 } catch (err) {
   console.error("FAIL:", err.message);

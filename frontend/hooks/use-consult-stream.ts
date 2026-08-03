@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { authHeaders } from "@/lib/auth-store";
 import type { CustomerConsultationRequest } from "@/lib/types";
 
@@ -24,6 +24,12 @@ export function useConsultStream() {
   const cancel = useCallback(() => {
     abortRef.current?.abort();
     setRunning(false);
+  }, []);
+
+  // Abort an in-flight SSE stream when the component unmounts so a client
+  // navigation does not leave the connection open.
+  useEffect(() => {
+    return () => abortRef.current?.abort();
   }, []);
 
   const run = useCallback(async (payload: CustomerConsultationRequest) => {
