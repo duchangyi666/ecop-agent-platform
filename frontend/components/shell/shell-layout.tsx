@@ -29,6 +29,10 @@ const PORTALS: Array<{ key: string; href: string; label: string }> = [
   { key: "admin", href: "/admin", label: "管理控制台" },
 ];
 
+const GLOBAL_NAV: Array<{ href: string; label: string; icon: LucideIcon }> = [
+  { href: "/chat", label: "对话", icon: MessageSquare },
+];
+
 const NAV: Record<string, Array<{ href: string; label: string; icon: LucideIcon }>> = {
   portal: [
     { href: "/portal", label: "总览", icon: LayoutDashboard },
@@ -73,9 +77,10 @@ export function ShellLayout({ children }: { children: ReactNode }) {
     return <IdentityPanel />;
   }
 
-  const segment = pathname.split("/")[1] ?? "portal";
+  const segment = pathname.split("/")[1] ?? "chat";
   const portalKey = PORTALS.some((p) => p.key === segment) ? segment : "portal";
   const navItems = NAV[portalKey] ?? NAV.portal;
+  const isChat = pathname.startsWith("/chat");
 
   const isActive = (href: string) =>
     href === "/" ? pathname === href : pathname === href || pathname.startsWith(href + "/");
@@ -83,17 +88,17 @@ export function ShellLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex h-screen overflow-hidden">
       <aside className="flex w-56 shrink-0 flex-col border-r border-border bg-card">
-        <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-accent text-xs font-bold text-accent-foreground">
+        <div className="flex items-center gap-2.5 border-b border-border px-4 py-4">
+          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent text-[11px] font-semibold text-accent-foreground">
             CD
           </span>
           <div className="leading-tight">
-            <p className="text-sm font-semibold">CloudDesk</p>
-            <p className="text-[10px] text-muted-foreground">客户运营平台</p>
+            <p className="text-sm font-semibold tracking-tight">CloudDesk</p>
+            <p className="text-[11px] text-muted-foreground">客户运营平台</p>
           </div>
         </div>
         <nav className="flex-1 space-y-0.5 overflow-auto p-2">
-          {navItems.map((item) => {
+          {[...GLOBAL_NAV, ...navItems].map((item) => {
             const active = isActive(item.href);
             return (
               <Link
@@ -144,7 +149,9 @@ export function ShellLayout({ children }: { children: ReactNode }) {
             <IdentitySwitcher />
           </div>
         </header>
-        <main className="flex-1 overflow-auto p-6">{children}</main>
+        <main className={cn("flex-1", isChat ? "overflow-hidden" : "overflow-auto p-6")}>
+          {children}
+        </main>
       </div>
     </div>
   );

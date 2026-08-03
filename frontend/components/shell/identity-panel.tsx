@@ -38,7 +38,7 @@ export function IdentityPanel() {
       userName,
       actorType: "user",
     });
-    router.push("/portal");
+    router.push("/chat");
   };
 
   return (

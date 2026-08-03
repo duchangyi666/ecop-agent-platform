@@ -1,0 +1,226 @@
+"use client";
+
+import { useRef, useState, useEffect } from "react";
+import { PanelRight, Send, Sparkles, Square } from "lucide-react";
+import { useConsultStream, type ConsultEvent } from "@/hooks/use-consult-stream";
+import { useAuthStore } from "@/lib/auth-store";
+import { cn } from "@/lib/cn";
+
+function eventNote(event: ConsultEvent): string | null {
+  if (event.event === "started") return "已受理您的问题，正在分析…";
+  if (event.event === "evidence") return `已检索 ${String(event.data.count ?? 0)} 条相关资料`;
+  if (event.event === "completed") return "回复已生成";
+  if (event.event === "error") return String(event.data.message ?? "处理出错");
+  return null;
+}
+
+export function ChatWindow() {
+  const identity = useAuthStore((state) => state.identity);
+  const { events, running, finalResponse, error, run, cancel } = useConsultStream();
+  const [input, setInput] = useState("");
+  const [showContext, setShowContext] = useState(false);
+  const [threadId, setThreadId] = useState<string | null>(null);
+  const [lastUserMessage, setLastUserMessage] = useState("");
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Group SSE events into display steps: user message + live process notes.
+  const displaySteps = events.filter((event) => event.event !== "done");
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [events.length, finalResponse, running]);
+
+  const submit = () => {
+    const message = input.trim();
+    if (!message || running) return;
+    const thread = threadId ?? `chat-${crypto.randomUUID().slice(0, 8)}`;
+    setThreadId(thread);
+    setLastUserMessage(message);
+    setInput("");
+    void run({ thread_id: thread, message });
+  };
+
+  const evidenceRaw = events.find((e) => e.event === "evidence")?.data.count;
+  const evidenceCount = typeof evidenceRaw === "number" ? evidenceRaw : 0;
+
+  return (
+    <div className="flex h-full min-h-0">
+      {/* Main conversation column */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-6">
+          <div>
+            <p className="text-sm font-medium">智能客服对话</p>
+            <p className="text-xs text-muted-foreground">{threadId ? "对话进行中" : "新对话"}</p>
+          </div>
+          <button
+            onClick={() => setShowContext((v) => !v)}
+            className={cn(
+              "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs transition-colors",
+              showContext
+                ? "bg-muted text-foreground"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground",
+            )}
+          >
+            <PanelRight className="h-3.5 w-3.5" />
+            上下文
+          </button>
+        </div>
+        <div ref={scrollRef} className="flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-2xl px-6 py-8">
+            {displaySteps.length === 0 && !running && !finalResponse && !error && (
+              <div className="flex flex-col items-center justify-center py-20 text-center">
+                <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-accent/10">
+                  <Sparkles className="h-6 w-6 text-accent" />
+                </div>
+                <h2 className="text-lg font-medium text-foreground">CloudDesk 智能客服</h2>
+                <p className="mt-1 max-w-md text-sm leading-relaxed text-muted-foreground">
+                  我可以协助处理账户、账单、产品技术支持、SLA 与工单相关问题。
+                  描述您遇到的问题即可开始。
+                </p>
+              </div>
+            )}
+
+            {/* User message + assistant processing trail */}
+            {threadId &&
+              displaySteps.map((event, index) => (
+                <div key={index} className="mb-5">
+                  {index === 0 && event.event === "started" && (
+                    <div className="mb-3 flex justify-end">
+                      <div className="max-w-[85%] rounded-2xl rounded-tr-md bg-accent px-4 py-2.5 text-sm leading-relaxed text-accent-foreground">
+                        {lastUserMessage}
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex items-start gap-2.5">
+                    <span className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted">
+                      <Sparkles className="h-3 w-3 text-muted-foreground" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-foreground">
+                        {event.event === "evidence" ? "正在检索企业知识库" : "正在处理"}
+                      </p>
+                      <p className="text-xs text-muted-foreground">{eventNote(event)}</p>
+                      {event.event === "evidence" && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {Array.from({ length: Number(event.data.count ?? 0) }).map((_, i) => (
+                            <span
+                              key={i}
+                              className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground"
+                            >
+                              资料 {i + 1}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+            {/* Final assistant answer */}
+            {finalResponse && (
+              <div className="mb-5 flex items-start gap-2.5">
+                <span className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted">
+                  <Sparkles className="h-3 w-3 text-muted-foreground" />
+                </span>
+                <div className="min-w-0 rounded-2xl rounded-tl-md border border-border bg-card px-4 py-3">
+                  <p className="text-sm leading-relaxed text-foreground">{finalResponse}</p>
+                </div>
+              </div>
+            )}
+
+            {running && (
+              <div className="mb-5 flex items-center gap-2 text-xs text-muted-foreground">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+                正在处理
+              </div>
+            )}
+
+            {error && (
+              <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+                {error}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Composer */}
+        <div className="border-t border-border px-6 py-4">
+          <div className="mx-auto max-w-2xl">
+            <div className="flex items-end gap-2 rounded-2xl border border-border bg-card px-3 py-2 focus-within:ring-2 focus-within:ring-ring">
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    submit();
+                  }
+                }}
+                rows={1}
+                placeholder="描述您的问题…"
+                className="max-h-40 min-h-6 flex-1 resize-none bg-transparent px-1 py-1.5 text-sm leading-relaxed outline-none placeholder:text-muted-foreground"
+              />
+              {running ? (
+                <button
+                  onClick={cancel}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground hover:bg-muted"
+                  aria-label="停止"
+                >
+                  <Square className="h-4 w-4" />
+                </button>
+              ) : (
+                <button
+                  onClick={submit}
+                  disabled={!input.trim()}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+                  aria-label="发送"
+                >
+                  <Send className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+            <p className="mt-2 px-1 text-xs text-muted-foreground">
+              可协助处理账户、账单、技术支持、SLA 与工单问题
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Context drawer */}
+      {showContext && (
+        <aside className="w-80 shrink-0 border-l border-border bg-card/40">
+          <div className="space-y-5 p-5">
+            <div>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                当前请求
+              </h3>
+              <p className="mt-1.5 text-sm text-foreground">{threadId ?? "尚未提交问题"}</p>
+              <p className="text-xs text-muted-foreground">线索 ID：{threadId ?? "-"}</p>
+            </div>
+            <div>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                检索证据
+              </h3>
+              <p className="mt-1.5 text-sm">{evidenceCount} 条相关知识</p>
+            </div>
+            <div>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                当前身份
+              </h3>
+              <div className="mt-1.5 flex items-center gap-2">
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent text-[11px] font-medium text-accent-foreground">
+                  {identity?.userName.slice(0, 1) ?? "?"}
+                </span>
+                <div className="leading-tight">
+                  <p className="text-sm">{identity?.userName}</p>
+                  <p className="text-xs text-muted-foreground">{identity?.tenantSlug}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </aside>
+      )}
+    </div>
+  );
+}

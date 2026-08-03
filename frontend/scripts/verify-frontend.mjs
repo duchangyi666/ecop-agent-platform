@@ -20,36 +20,32 @@ try {
   await page.waitForSelector("text=synthetic-1", { timeout: 20000 });
   console.log("PASS: identity picker renders tenants");
 
-  // 3. Expand synthetic-1, pick a customer user, expect the portal to appear
+  // 3. Expand synthetic-1, pick a customer user -> lands on the chat console
   await page.click("text=synthetic-1", { timeout: 20000 });
   await page.waitForSelector("text=客户用户1", { timeout: 20000 });
   await page.click("text=客户用户1");
-  await page.waitForSelector("text=我的工单", { timeout: 20000 });
-  console.log("PASS: selected identity shows portal");
+  await page.waitForURL("**/chat", { timeout: 20000 });
+  await page.waitForSelector("text=智能客服对话", { timeout: 20000 });
+  console.log("PASS: selected identity lands on chat console");
 
-  // 4. Portal overview renders with ticket data
-  await page.waitForSelector("text=客户门户", { timeout: 20000 });
+  // 4. Send a message and watch the SSE process trail render
+  await page.locator("textarea").first().fill("I was charged twice this month, please check.");
+  await page.click('button[aria-label="发送"]', { timeout: 10000 });
+  await page.waitForSelector("text=正在检索企业知识库", { timeout: 30000 });
+  await page.waitForSelector("text=回复已生成", { timeout: 30000 });
+  console.log("PASS: chat SSE conversation rendered");
+  await page.screenshot({ path: "scripts/verify-chat.png", fullPage: true });
+
+  // 5. Navigate via the top bar to portal / workspace / admin consoles
+  await page.click("text=客户门户", { timeout: 20000 });
   await page.waitForSelector("text=我的工单", { timeout: 20000 });
   console.log("PASS: portal overview rendered");
-  await page.screenshot({ path: "scripts/verify-portal.png", fullPage: true });
 
-  // 5. Portal consult page with SSE flow
-  await page.goto(`${baseUrl}/portal/consult`, { waitUntil: "domcontentloaded" });
-  await page.waitForSelector("text=提交问题", { timeout: 20000 });
-  await page.locator("textarea").first().fill("I was charged twice this month, please check.");
-  await page.click('button:has-text("提交")', { timeout: 10000 });
-  await page.waitForSelector("text=处理进度", { timeout: 30000 });
-  await page.waitForSelector("text=处理完成", { timeout: 30000 });
-  console.log("PASS: portal consult SSE stream rendered");
-  await page.screenshot({ path: "scripts/verify-consult.png", fullPage: true });
-
-  // 6. Navigate via the top bar to the workspace and admin consoles
   await page.click("text=客服工作台", { timeout: 20000 });
   await page.waitForSelector("text=工单队列", { timeout: 20000 });
   console.log("PASS: workspace ticket queue rendered");
 
   await page.click("text=管理控制台", { timeout: 20000 });
-  await page.waitForSelector("text=管理控制台", { timeout: 20000 });
   await page.waitForSelector("text=后端服务", { timeout: 20000 });
   console.log("PASS: admin overview rendered");
 } catch (err) {
