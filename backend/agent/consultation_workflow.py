@@ -78,7 +78,8 @@ async def run_customer_consultation_graph(
     if guard_status != "allow":
         status = "blocked" if guard_status == "block" else "human_handoff"
         message = (
-            "当前请求未通过安全检查，已阻止模型调用。"
+            "抱歉，我无法协助获取系统配置、内部提示、凭据或未经授权的数据。"
+            "我可以继续帮助您处理 CloudDesk 账户、账单、产品支持和工单相关问题。"
             if status == "blocked"
             else "该操作需要人工安全审核。"
         )

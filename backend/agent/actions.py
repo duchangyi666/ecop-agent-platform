@@ -28,10 +28,12 @@ from backend.llm.gateway import ModelGateway
 _ACTION_SYSTEM_PROMPT = (
     "你是 CloudDesk 客服的判断中枢，像经验丰富的客服主管一样审慎，不是命令执行器。"
     "结合对话历史判断用户当前这句话的意图与是否具备执行条件，只输出 JSON。"
-    "action 取值：answer(纯咨询/需解释/需拒绝)、request_refund(用户反映重复扣费或要求退款)、"
-    "create_ticket(创建/提交工单)、list_payments(查询我的扣费/支付记录)。\n"
+    "action 取值：answer(纯咨询/需解释/需拒绝)、request_refund(反映重复扣费或要求退款)、"
+    "create_ticket(创建/提交工单)、list_payments(查我的扣费/支付记录)、"
+    "query_ticket_status(问工单进度/处理到哪了)、query_refund_status(问退款进度/到账了吗)。\n"
     "原则：\n"
     "- 纯咨询政策、或要求越权/绕过审批/明显不当时，用 answer（由回复环节解释或礼貌拒绝），不要执行。\n"
+    "- 用户问“我的工单/退款/扣费怎么样了”这类需要看真实数据的，用对应查询动作，系统会去查业务库再回答。\n"
     "- create_ticket：只说“建个工单”而没说是什么问题，ready=false 并在 question 只问一个问题；"
     "已说明具体问题则 ready=true 并在 subject 概括主题。\n"
     "- request_refund：用户反映重复扣费/要求退款时用此动作；系统会自动核实是否真的存在重复扣费，"
@@ -42,7 +44,14 @@ _ACTION_SYSTEM_PROMPT = (
 class ActionDecision(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    action: Literal["answer", "request_refund", "create_ticket", "list_payments"] = "answer"
+    action: Literal[
+        "answer",
+        "request_refund",
+        "create_ticket",
+        "list_payments",
+        "query_ticket_status",
+        "query_refund_status",
+    ] = "answer"
     ready: bool = True
     question: Optional[str] = Field(default=None, max_length=300)
     subject: Optional[str] = Field(default=None, max_length=200)
@@ -108,7 +117,49 @@ class ConversationActionExecutor:
             return await self._create_ticket(scope=scope, decision=decision, user_message=user_message)
         if decision.action == "list_payments":
             return await self._list_payments(scope=scope)
+        if decision.action == "query_ticket_status":
+            return await self._query_ticket_status(scope=scope)
+        if decision.action == "query_refund_status":
+            return await self._query_refund_status(scope=scope)
         return None
+
+    async def _query_ticket_status(self, *, scope: TenantScope) -> ActionResult | None:
+        customer_id = await self.resolve_customer(scope)
+        if customer_id is None:
+            return ActionResult(action="query_ticket_status", summary="未找到您关联的客户账户，无法查询工单。")
+        async with UnitOfWork(self.session_factory, scope=scope) as uow:
+            tickets = await uow.support.list_tickets_for_customer(
+                scope=scope, customer_id=customer_id, limit=3
+            )
+        if not tickets:
+            return ActionResult(action="query_ticket_status", summary="您名下暂时没有工单记录。")
+        lines = [
+            f"- 「{t.subject}」当前状态：{t.status.value if hasattr(t.status,'value') else t.status}"
+            for t in tickets
+        ]
+        return ActionResult(
+            action="query_ticket_status",
+            summary="我查到您最近的工单：\n" + "\n".join(lines),
+        )
+
+    async def _query_refund_status(self, *, scope: TenantScope) -> ActionResult | None:
+        customer_id = await self.resolve_customer(scope)
+        if customer_id is None:
+            return ActionResult(action="query_refund_status", summary="未找到您关联的客户账户，无法查询退款。")
+        async with UnitOfWork(self.session_factory, scope=scope) as uow:
+            refunds = await uow.billing.list_refunds_for_customer(
+                scope=scope, customer_id=customer_id, limit=3
+            )
+        if not refunds:
+            return ActionResult(action="query_refund_status", summary="您名下暂时没有退款记录。")
+        lines = [
+            f"- 退款 {r.amount} 元，状态：{r.status.value if hasattr(r.status,'value') else r.status}"
+            for r in refunds
+        ]
+        return ActionResult(
+            action="query_refund_status",
+            summary="我查到您最近的退款：\n" + "\n".join(lines),
+        )
 
     @staticmethod
     def _find_duplicate(payments) -> object | None:

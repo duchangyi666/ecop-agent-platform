@@ -173,6 +173,20 @@ class SupportRepository(TenantScopedRepository):
         await self.session.flush()
         return ticket
 
+    async def list_tickets_for_customer(
+        self,
+        *,
+        scope: TenantScope,
+        customer_id: UUID,
+        limit: int = 5,
+    ) -> list[Ticket]:
+        statement = self._tenant_visible(select(Ticket), Ticket, scope=scope).where(
+            Ticket.customer_id == customer_id,
+            Ticket.deleted_at.is_(None),
+        )
+        result = await self.session.scalars(statement.order_by(Ticket.created_at.desc()).limit(limit))
+        return list(result.all())
+
     async def update_ticket_status(
         self,
         *,

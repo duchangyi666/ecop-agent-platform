@@ -71,6 +71,17 @@ class InputSecurityGuard:
         "unauthorized tool",
         "未经授权执行",
     )
+    _data_exfiltration_patterns = (
+        "所有客户",
+        "全部客户",
+        "所有账单",
+        "全部账单",
+        "批量导出",
+        "导出所有",
+        "所有用户的数据",
+        "别人的数据",
+        "其他客户的数据",
+    )
 
     def evaluate(self, text: str) -> GuardDecision:
         normalized = _normalize(text or "")
@@ -91,6 +102,12 @@ class InputSecurityGuard:
                 status="block",
                 code="credential_exposure",
                 reason="检测到敏感凭据或支付信息",
+            )
+        if any(pattern in normalized for pattern in self._data_exfiltration_patterns):
+            return GuardDecision(
+                status="block",
+                code="data_exfiltration",
+                reason="检测到跨租户/批量数据索取",
             )
         if any(pattern in normalized for pattern in self._unsafe_action_patterns):
             return GuardDecision(

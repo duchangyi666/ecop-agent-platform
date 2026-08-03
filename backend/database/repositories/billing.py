@@ -64,6 +64,21 @@ class BillingRepository(TenantScopedRepository):
         result = await self.session.scalars(statement.order_by(Payment.paid_at.desc()).limit(limit))
         return list(result.all())
 
+    async def list_refunds_for_customer(
+        self,
+        *,
+        scope: TenantScope,
+        customer_id: UUID,
+        limit: int = 5,
+    ) -> list[Refund]:
+        statement = (
+            self._tenant_visible(select(Refund), Refund, scope=scope)
+            .join(Payment, Payment.id == Refund.payment_id)
+            .where(Payment.customer_id == customer_id, Payment.deleted_at.is_(None))
+        )
+        result = await self.session.scalars(statement.order_by(Refund.created_at.desc()).limit(limit))
+        return list(result.all())
+
     async def create_refund_request(
         self,
         *,
