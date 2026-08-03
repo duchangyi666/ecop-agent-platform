@@ -29,6 +29,7 @@ export interface IdentityUserItem {
   email: string;
   display_name: string;
   status: string;
+  roles?: string[];
 }
 
 export interface TenantUsersResponse {

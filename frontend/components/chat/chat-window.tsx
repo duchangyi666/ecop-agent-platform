@@ -29,6 +29,35 @@ export function ChatWindow() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Persist the conversation per identity so history survives navigating to
+  // another console and back (and page refreshes).
+  const storageKey = identity
+    ? `clouddesk-chat-${identity.tenantId}:${identity.userId}`
+    : null;
+
+  useEffect(() => {
+    if (!storageKey) return;
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      if (raw) {
+        const saved = JSON.parse(raw) as { threadId?: string | null; messages?: ChatMessage[] };
+        setThreadId(saved.threadId ?? null);
+        setMessages(Array.isArray(saved.messages) ? saved.messages : []);
+      }
+    } catch {
+      /* ignore malformed saved state */
+    }
+  }, [storageKey]);
+
+  useEffect(() => {
+    if (!storageKey) return;
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify({ threadId, messages }));
+    } catch {
+      /* ignore quota errors */
+    }
+  }, [storageKey, threadId, messages]);
+
   // SSE process events (evidence / processing notes) shown under the current turn.
   const processSteps = events.filter((event) => event.event !== "done");
   const evidenceRaw = events.find((e) => e.event === "evidence")?.data.count;

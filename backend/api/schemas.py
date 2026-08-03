@@ -525,6 +525,7 @@ class IdentityUserItem(BaseModel):
     email: str
     display_name: str
     status: str
+    roles: list[str] = Field(default_factory=list)
 
 
 class TenantUsersResponse(BaseModel):

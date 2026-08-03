@@ -25,7 +25,7 @@ export function IdentityPanel() {
     queryKey: ["identity", "users", selectedTenant],
     queryFn: () =>
       api.get<TenantUsersResponse>(`/api/v1/identity/tenants/${selectedTenant}/users`, {
-        limit: 500,
+        limit: 1000,
       }),
     enabled: Boolean(selectedTenant),
   });
@@ -95,22 +95,32 @@ export function IdentityPanel() {
                         </div>
                       )}
                       <ul className="divide-y divide-border/60">
-                        {usersQuery.data?.users.map((user) => (
-                          <li key={user.id}>
-                            <button
-                              onClick={() =>
-                                selectUser(tenant, user.id, user.display_name || user.email)
-                              }
-                              className="flex w-full items-center gap-2.5 px-6 py-2.5 text-left text-sm hover:bg-muted"
-                            >
-                              <User className="h-3.5 w-3.5 text-muted-foreground" />
-                              <span>{user.display_name}</span>
-                              <span className="ml-auto text-xs text-muted-foreground">
-                                {user.email}
-                              </span>
-                            </button>
-                          </li>
-                        ))}
+                        {usersQuery.data?.users.map((user) => {
+                          const isAdmin = (user.roles ?? []).some((role) =>
+                            ["support_manager", "finance_reviewer", "tenant_admin"].includes(role),
+                          );
+                          return (
+                            <li key={user.id}>
+                              <button
+                                onClick={() =>
+                                  selectUser(tenant, user.id, user.display_name || user.email)
+                                }
+                                className="flex w-full items-center gap-2.5 px-6 py-2.5 text-left text-sm hover:bg-muted"
+                              >
+                                <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                <span>{user.display_name}</span>
+                                {isAdmin && (
+                                  <span className="rounded-full border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-accent">
+                                    管理员
+                                  </span>
+                                )}
+                                <span className="ml-auto truncate text-xs text-muted-foreground">
+                                  {user.email}
+                                </span>
+                              </button>
+                            </li>
+                          );
+                        })}
                         {usersQuery.data?.users.length === 0 && (
                           <li className="px-6 py-3 text-xs text-muted-foreground">该租户暂无用户</li>
                         )}

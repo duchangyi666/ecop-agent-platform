@@ -13,7 +13,7 @@ from backend.api.schemas import (
     TenantListResponse,
     TenantUsersResponse,
 )
-from backend.database.models.identity import Tenant, User
+from backend.database.models.identity import Role, Tenant, User, UserRole
 
 router = APIRouter(prefix="/api/v1/identity", tags=["identity"])
 
@@ -80,6 +80,22 @@ async def list_tenant_users(
                 )
             ).all()
         )
+        user_ids = [user.id for user in users]
+        role_rows = (
+            await session.execute(
+                select(UserRole.user_id, Role.code)
+                .join(Role, Role.id == UserRole.role_id)
+                .where(
+                    UserRole.tenant_id == tenant_id,
+                    UserRole.user_id.in_(user_ids),
+                    UserRole.deleted_at.is_(None),
+                    Role.deleted_at.is_(None),
+                )
+            )
+        ).all()
+    roles_by_user: dict[UUID, list[str]] = {}
+    for user_id, role_code in role_rows:
+        roles_by_user.setdefault(user_id, []).append(role_code)
     return TenantUsersResponse(
         request_id=_request_id(request),
         tenant_id=tenant_id,
@@ -89,6 +105,7 @@ async def list_tenant_users(
                 email=user.email,
                 display_name=user.display_name,
                 status=user.status,
+                roles=sorted(roles_by_user.get(user.id, [])),
             )
             for user in users
         ],
