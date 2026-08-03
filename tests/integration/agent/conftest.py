@@ -4,8 +4,6 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-pytest_plugins = ("tests.integration.database.conftest",)
-
 
 @pytest_asyncio.fixture
 async def session_factory(database_url: str) -> async_sessionmaker[AsyncSession]:

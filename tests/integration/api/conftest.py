@@ -9,7 +9,6 @@ from uuid import uuid4
 from backend.database.models.identity import Permission, Role, UserRole
 from backend.llm.contracts import ResponseDraft
 from backend.llm.fake import FakeModelGateway
-pytest_plugins = ("tests.integration.database.conftest",)
 
 
 @pytest_asyncio.fixture

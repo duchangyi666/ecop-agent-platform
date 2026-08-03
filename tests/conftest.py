@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from backend.config import get_settings
 from backend.database.session import get_session_factory
 
+pytest_plugins = ("tests.integration.database.conftest",)
+
 
 @pytest.fixture
 def database_url() -> str:
