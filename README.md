@@ -41,6 +41,28 @@ $env:PYTHONNOUSERSITE = "1"
 $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations"
 ```
 
+## 生成企业级 Synthetic Data
+
+`scripts/generate_synthetic_data.py` 生成业务一致的模拟企业数据，覆盖规格第 25 节的完整租户图谱，满足全部外键、唯一约束和领域状态机。规模可配置：
+
+- `--scale small`：10 租户 / 600 用户 / 200 客户 / 1200 支付 / 600 工单 / 1000 评测用例，适合快速验证。
+- `--scale full`：50 租户 / 5 万用户 / 1 万客户 / 2 万订阅 / 10 万支付 / 2 万退款 / 5 万工单 / 300 文档 / 5000 记忆 / 1000 评测用例。
+
+```powershell
+$env:PYTHONNOUSERSITE = "1"
+$env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations"
+& E:\anaconda3\envs\edu_agent\python.exe -m alembic upgrade head
+& E:\anaconda3\envs\edu_agent\python.exe scripts/generate_synthetic_data.py --scale small --reset --seed 42
+& E:\anaconda3\envs\edu_agent\python.exe scripts/verify_synthetic_data.py
+```
+
+说明：
+
+- `--reset` 会 TRUNCATE 全部业务表后重建数据；`--seed` 固定随机种子保证可复现。
+- 24 个注入场景（重复扣费、Prompt Injection、越权导出、审批过期、并发退款等）以独立会话消息方式写入，供端到端演示与评测使用。
+- 生成的数据与测试隔离：`tests/unit/database` 的 fixture 会在结束时 `drop_all` 数据库表，因此请先跑测试再生成演示数据，或生成后再跑 `alembic upgrade head` 重建表。
+- `scripts/verify_synthetic_data.py` 校验行数、同租户外键引用、跨租户隔离、唯一约束和领域状态值。
+
 ## Docker Compose 与部署
 
 项目根目录 `docker-compose.yml` 提供完整本地部署：

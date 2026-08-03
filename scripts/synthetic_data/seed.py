@@ -120,6 +120,25 @@ def _sha256_hex(payload: object) -> str:
     return _hash(payload)
 
 
+_DOCUMENT_QUERY_HINTS = (
+    ("退款", "退款政策是什么？重复扣费如何申请退款？"),
+    ("SLA", "CloudDesk 的 SLA 支持等级和响应时间是什么？"),
+    ("账户", "账户被锁定怎么办？如何修改密码和设置 MFA？"),
+    ("计费", "账单和发票常见问题，如何修改发票信息？"),
+    ("API", "API 如何集成？接口限流和 Webhook 事件说明。"),
+    ("Webhook", "Webhook 回调失败如何排查和重试？"),
+    ("故障", "服务故障如何处理？应急和升级流程。"),
+    ("同步", "数据同步失败如何处置？"),
+)
+
+
+def _document_query(title: str) -> str:
+    for hint, query in _DOCUMENT_QUERY_HINTS:
+        if hint in title:
+            return query
+    return f"{title} 相关内容是什么？"
+
+
 # ---------------------------------------------------------------------------
 # Per-tenant seeding
 # ---------------------------------------------------------------------------
@@ -136,6 +155,7 @@ class _TenantData:
         self.support_users: list[User] = []
         self.customers: list[Customer] = []
         self.payments: list[Payment] = []
+        self.documents: list[Document] = []
 
 
 def _build_roles_and_users(
@@ -677,6 +697,7 @@ async def _seed_documents(session: AsyncSession, data: _TenantData, rng: random.
         )
         session.add(document)
         await session.flush()
+        data.documents.append(document)
         chunks: list[KnowledgeChunk] = []
         content_lines = [
             f"# {title}",
@@ -920,14 +941,22 @@ async def _seed_evaluation(session: AsyncSession, data: _TenantData, profile, sc
                 break
             remaining -= 1
             case_seq += 1
-            scenario = scenario_pool[(case_seq - 1) % scenario_count]
-            input_text = scenario["user_message"]
-            if dataset.dataset_code == "retrieval":
-                input_text = "请说明 CloudDesk 的退款政策与 SLA 支持等级。"
-            expected: dict[str, object] = {
-                "tags": scenario["tags"],
-                "expectation": scenario["expectation"],
-            }
+            if dataset.dataset_code == "retrieval" and data.documents:
+                # Retrieval cases carry document_ids ground truth derived from
+                # the tenant's own knowledge documents.
+                document = data.documents[(case_seq - 1) % len(data.documents)]
+                query = _document_query(document.title)
+                input_text = query
+                expected = {"document_ids": [str(document.id)]}
+                tags = ["retrieval", "synthetic"]
+            else:
+                scenario = scenario_pool[(case_seq - 1) % scenario_count]
+                input_text = scenario["user_message"]
+                expected = {
+                    "tags": scenario["tags"],
+                    "expectation": scenario["expectation"],
+                }
+                tags = list(scenario["tags"])
             session.add(
                 EvaluationCase(
                     id=uuid4(),
@@ -936,7 +965,7 @@ async def _seed_evaluation(session: AsyncSession, data: _TenantData, profile, sc
                     case_key=f"{dataset.dataset_code}-{tenant.slug}-{case_seq}",
                     input_summary=input_text[:2000],
                     expected_summary=expected,
-                    tags=list(scenario["tags"]),
+                    tags=tags,
                 )
             )
 
