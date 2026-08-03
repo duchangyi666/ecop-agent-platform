@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.agent.actions import ConversationActionExecutor, action_to_evidence
+from backend.agent.agents.supervisor import llm_route
 from backend.agent.graphs.main_graph import build_main_graph
 from backend.agent.state import AgentState, KnowledgeEvidence
 from backend.database.models.governance import MemoryRecord
@@ -211,40 +212,34 @@ class CustomerConsultationService:
         # turn is a pure question or a real business request; the executor then
         # performs it against PostgreSQL and the outcome is grounded into the
         # answer and surfaced as an evidence card.
+        # Two-level multi-agent routing: an LLM supervisor picks the domain,
+        # then that domain's agent confirms the concrete action and executes it
+        # (or asks for clarification). Business domains own their own tools.
         clarification: str | None = None
         if self.session_factory is not None:
+            domain = await llm_route(self.model_gateway, request.state)
             executor = ConversationActionExecutor(self.session_factory)
-            decision = await executor.decide(
+            action_result, clarification = await executor.run_domain_action(
                 self.model_gateway,
-                user_message,
-                conversation=request.state.conversation,
+                request.state,
+                domain=domain,
+                user_message=user_message,
+                thread_id=request.thread_id,
             )
-            if decision.action != "answer":
-                if not decision.ready and decision.question:
-                    # Not enough information yet: ask one clarifying question
-                    # instead of executing the business action blindly.
-                    clarification = decision.question
-                else:
-                    action_result = await executor.execute(
-                        scope=request.state.tenant_scope,
-                        decision=decision,
-                        user_message=user_message,
-                        thread_id=request.thread_id,
+            if action_result is not None:
+                evidence = [*evidence, action_to_evidence(action_result)]
+                graph_state = request.state.model_copy(
+                    update={"knowledge_evidence": evidence}
+                )
+                if self.event_sink is not None:
+                    await self.event_sink(
+                        "action",
+                        {
+                            "thread_id": request.thread_id,
+                            "action": action_result.action,
+                            "summary": action_result.summary,
+                        },
                     )
-                    if action_result is not None:
-                        evidence = [*evidence, action_to_evidence(action_result)]
-                        graph_state = request.state.model_copy(
-                            update={"knowledge_evidence": evidence}
-                        )
-                        if self.event_sink is not None:
-                            await self.event_sink(
-                                "action",
-                                {
-                                    "thread_id": request.thread_id,
-                                    "action": action_result.action,
-                                    "summary": action_result.summary,
-                                },
-                            )
 
         if clarification is not None:
             result = CustomerConsultationResult(

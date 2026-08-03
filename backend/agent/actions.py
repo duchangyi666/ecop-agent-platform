@@ -89,7 +89,10 @@ class ConversationActionExecutor:
                 user_prompt=user_prompt,
                 response_model=ActionDecision,
             )
-            return draft
+            if isinstance(draft, ActionDecision):
+                return draft
+            # Non-conforming gateway (e.g. the offline fake) → coerce safely.
+            return ActionDecision.model_validate(draft.model_dump())
         except Exception:
             # On any model failure, fall back to a plain answer so the
             # conversation still works.
@@ -100,6 +103,44 @@ class ConversationActionExecutor:
             if scope.actor_id is None:
                 return None
             return await uow.identity.get_customer_for_user(scope=scope, user_id=scope.actor_id)
+
+    _DOMAIN_ACTIONS: dict[str, tuple[str, ...]] = {
+        "route_billing": ("request_refund", "query_refund_status", "list_payments"),
+        "route_ticket": ("create_ticket", "query_ticket_status"),
+        "route_approval": ("query_refund_status",),
+        "route_knowledge": (),
+        "route_customer": (),
+    }
+
+    async def run_domain_action(
+        self,
+        gateway: ModelGateway | None,
+        state,
+        *,
+        domain: str,
+        user_message: str,
+        thread_id: str,
+    ) -> tuple[ActionResult | None, str | None]:
+        """Two-level multi-agent routing: the LLM supervisor picked `domain`;
+        here the domain agent confirms the concrete action and executes it.
+        Returns (action_result, clarification)."""
+        allowed = self._DOMAIN_ACTIONS.get(domain, ())
+        if not allowed or gateway is None:
+            return None, None
+        decision = await self.decide(gateway, user_message, conversation=state.conversation)
+        if decision.action not in allowed:
+            # The domain was routed but the concrete intent differs; do not
+            # force an unrelated business action.
+            return None, None
+        if not decision.ready and decision.question:
+            return None, decision.question
+        result = await self.execute(
+            scope=state.tenant_scope,
+            decision=decision,
+            user_message=user_message,
+            thread_id=thread_id,
+        )
+        return result, None
 
     async def execute(
         self,
@@ -201,8 +242,9 @@ class ConversationActionExecutor:
                         "我再为您进一步核查，或为您转人工。"
                     ),
                 )
-            # A genuine duplicate charge was verified; refund the later one.
-            idempotency_key = f"chat-{thread_id}-{str(duplicate.id)[:8]}"
+            # Idempotency keyed by the payment so the same duplicate charge is
+            # never refunded twice, regardless of conversation thread/turn.
+            idempotency_key = f"chat-refund-{duplicate.id}"
             try:
                 refund = await tool.request(
                     RefundToolRequest(
