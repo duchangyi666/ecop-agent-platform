@@ -11,6 +11,7 @@ grounded into the final answer and surfaced as an evidence card.
 from __future__ import annotations
 
 from typing import Literal, Optional
+from datetime import timedelta
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -25,13 +26,16 @@ from backend.domain.common import DomainError
 from backend.llm.gateway import ModelGateway
 
 _ACTION_SYSTEM_PROMPT = (
-    "你是 CloudDesk 客服意图执行器。结合对话历史判断用户当前这句话要做什么，只输出 JSON。"
-    "action 取值：answer(仅需依据知识回答)、request_refund(申请/办理退款)、"
-    "create_ticket(创建/提交工单)、list_payments(查询我的扣费/支付记录)。"
-    "ready 表示信息是否足够立即执行该动作：若用户只是提出意图但缺少必要细节"
-    "（例如只说“帮我建个工单”却没说是什么问题），ready=false 并在 question 里"
-    "只问一个最必要的澄清问题；若历史对话或当前消息已包含具体细节，ready=true 并"
-    "在 subject 里概括工单主题。退款可按账户最近一笔成功支付办理，通常 ready=true。"
+    "你是 CloudDesk 客服的判断中枢，像经验丰富的客服主管一样审慎，不是命令执行器。"
+    "结合对话历史判断用户当前这句话的意图与是否具备执行条件，只输出 JSON。"
+    "action 取值：answer(纯咨询/需解释/需拒绝)、request_refund(用户反映重复扣费或要求退款)、"
+    "create_ticket(创建/提交工单)、list_payments(查询我的扣费/支付记录)。\n"
+    "原则：\n"
+    "- 纯咨询政策、或要求越权/绕过审批/明显不当时，用 answer（由回复环节解释或礼貌拒绝），不要执行。\n"
+    "- create_ticket：只说“建个工单”而没说是什么问题，ready=false 并在 question 只问一个问题；"
+    "已说明具体问题则 ready=true 并在 subject 概括主题。\n"
+    "- request_refund：用户反映重复扣费/要求退款时用此动作；系统会自动核实是否真的存在重复扣费，"
+    "若不存在会如实告知并不退款，因此无需担心误退。若用户只是问退款政策，用 answer。"
 )
 
 
@@ -106,6 +110,18 @@ class ConversationActionExecutor:
             return await self._list_payments(scope=scope)
         return None
 
+    @staticmethod
+    def _find_duplicate(payments) -> object | None:
+        """Return the later payment of a same-amount pair within 24h, if any."""
+        ordered = sorted(payments, key=lambda p: p.paid_at)
+        for i, first in enumerate(ordered):
+            for second in ordered[i + 1 :]:
+                if second.amount == first.amount and (
+                    second.paid_at - first.paid_at
+                ) <= timedelta(hours=24):
+                    return second
+        return None
+
     async def _request_refund(self, *, scope: TenantScope, thread_id: str) -> ActionResult | None:
         customer_id = await self.resolve_customer(scope)
         async with UnitOfWork(self.session_factory, scope=scope) as uow:
@@ -113,26 +129,36 @@ class ConversationActionExecutor:
             if customer_id is None:
                 return ActionResult(
                     action="request_refund",
-                    summary="未找到您关联的客户账户，无法直接发起退款，请提供客户信息或联系人工客服。",
+                    summary="未找到您关联的客户账户，无法核实扣费记录，请联系人工客服。",
                 )
             payments = await uow.billing.list_recent_payments(
-                scope=scope, customer_id=customer_id, limit=3
+                scope=scope, customer_id=customer_id, limit=10
             )
             if not payments:
                 return ActionResult(
                     action="request_refund",
-                    summary="未查询到您名下已成功的支付记录，暂无法发起退款。",
+                    summary="我核对了您名下的支付记录，没有查询到已成功的支付，暂无法认定重复扣费。",
                 )
-            payment = payments[0]
-            # Idempotency keyed by thread so repeated turns do not double-refund.
-            idempotency_key = f"chat-{thread_id}-{str(payment.id)[:8]}"
+            duplicate = self._find_duplicate(payments)
+            if duplicate is None:
+                checked = "、".join(f"{p.paid_at:%m-%d} {p.amount}元" for p in payments[:4])
+                return ActionResult(
+                    action="request_refund",
+                    summary=(
+                        f"我逐笔核对了您最近的成功支付（{checked}），未发现 24 小时内相同金额的重复扣费，"
+                        "因此暂时不能为您发起退款。若您确认有重复扣款，请提供具体的扣费流水号或时间，"
+                        "我再为您进一步核查，或为您转人工。"
+                    ),
+                )
+            # A genuine duplicate charge was verified; refund the later one.
+            idempotency_key = f"chat-{thread_id}-{str(duplicate.id)[:8]}"
             try:
                 refund = await tool.request(
                     RefundToolRequest(
                         scope=scope,
-                        payment_id=payment.id,
+                        payment_id=duplicate.id,
                         idempotency_key=idempotency_key,
-                        amount=payment.amount,
+                        amount=duplicate.amount,
                     )
                 )
             except DomainError as exc:
@@ -141,7 +167,8 @@ class ConversationActionExecutor:
             return ActionResult(
                 action="request_refund",
                 summary=(
-                    f"已为您针对最近一笔成功支付（金额 {payment.amount} 元）创建退款申请，"
+                    f"经核实，您确有一笔重复扣费（{duplicate.paid_at:%m-%d} {duplicate.amount} 元，"
+                    "24 小时内出现两笔相同金额）。我已为您创建退款申请，"
                     f"退款单号 {refund.id}，当前状态：{status}。"
                     "若金额较高将进入人工审批，审批通过后自动执行。"
                 ),

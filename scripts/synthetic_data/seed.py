@@ -58,6 +58,7 @@ from backend.database.models.support import (
     TicketEvent,
     TicketMessage,
 )
+from backend.domain.billing import PaymentStatus
 from backend.domain.common import InvalidStateTransition
 from backend.domain.ticket import transition_ticket
 
@@ -368,6 +369,42 @@ async def _seed_tenant(
         payments.append(payment)
         session.add(payment)
     await session.flush()
+    # --- guaranteed duplicate charge for the first customer so the
+    # verify-then-refund path is demonstrable: two same-amount payments 10
+    # minutes apart. customer[0] maps to 客户用户1 via CustomerContact. ---
+    dup_customer = data.customers[0]
+    dup_amount = Decimal("299.00")
+    dup_base = utc_now() - timedelta(days=2)
+    dup_invoice = Invoice(
+        id=uuid4(),
+        tenant_id=tenant.id,
+        customer_id=dup_customer.id,
+        subscription_id=None,
+        external_invoice_id=f"ext-inv-dup-{tenant.slug}",
+        amount=dup_amount,
+        currency=CURRENCY,
+        status="paid",
+        issued_at=dup_base,
+    )
+    session.add(dup_invoice)
+    await session.flush()
+    for offset in (0, 10):
+        payments.append(
+            Payment(
+                id=uuid4(),
+                tenant_id=tenant.id,
+                invoice_id=dup_invoice.id,
+                customer_id=dup_customer.id,
+                external_payment_id=f"ext-pay-dup-{tenant.slug}-{offset}",
+                amount=dup_amount,
+                currency=CURRENCY,
+                status=PaymentStatus.SUCCEEDED,
+                paid_at=dup_base + timedelta(minutes=offset),
+            )
+        )
+    session.add_all(payments[-2:])
+    await session.flush()
+
     data.payments = payments
 
     # --- refunds (only against payments that could be refunded) ---
