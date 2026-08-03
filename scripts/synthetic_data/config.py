@@ -305,6 +305,10 @@ EVALUATION_DATASETS = (
     ("response_quality", "回复质量"),
 )
 
+# Relative weight of each dataset when distributing evaluation cases.
+# Retrieval gets a large share because RAG metrics need a real ground truth.
+EVALUATION_DATASET_WEIGHTS = (10, 10, 8, 12, 40, 10, 5, 5)
+
 FEATURE_FLAGS = (
     ("auto_refund", True, {"max_amount": "500.00"}),
     ("long_term_memory", True, {"ttl_days": 180}),

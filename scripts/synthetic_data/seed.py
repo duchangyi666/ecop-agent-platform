@@ -69,6 +69,7 @@ from scripts.synthetic_data.config import (
     DOCUMENT_SOURCES,
     DOCUMENT_VISIBILITIES,
     EVALUATION_DATASETS,
+    EVALUATION_DATASET_WEIGHTS,
     FEATURE_FLAGS,
     INVOICE_STATUSES,
     MEMORY_TYPES,
@@ -932,42 +933,46 @@ async def _seed_evaluation(session: AsyncSession, data: _TenantData, profile, sc
         await session.flush()
         datasets.append(dataset)
 
+    # Weighted dataset distribution so retrieval cases (needed for RAG
+    # evaluation) receive a meaningful share of the budget.
+    dataset_pool = [
+        dataset
+        for dataset, weight in zip(datasets, EVALUATION_DATASET_WEIGHTS)
+        for _ in range(weight)
+    ]
     remaining = profile.evaluation_cases_per_tenant
     scenario_count = len(scenario_pool)
     case_seq = 0
     while remaining > 0:
-        for dataset in datasets:
-            if remaining <= 0:
-                break
-            remaining -= 1
-            case_seq += 1
-            if dataset.dataset_code == "retrieval" and data.documents:
-                # Retrieval cases carry document_ids ground truth derived from
-                # the tenant's own knowledge documents.
-                document = data.documents[(case_seq - 1) % len(data.documents)]
-                query = _document_query(document.title)
-                input_text = query
-                expected = {"document_ids": [str(document.id)]}
-                tags = ["retrieval", "synthetic"]
-            else:
-                scenario = scenario_pool[(case_seq - 1) % scenario_count]
-                input_text = scenario["user_message"]
-                expected = {
-                    "tags": scenario["tags"],
-                    "expectation": scenario["expectation"],
-                }
-                tags = list(scenario["tags"])
-            session.add(
-                EvaluationCase(
-                    id=uuid4(),
-                    tenant_id=tenant.id,
-                    dataset_id=dataset.id,
-                    case_key=f"{dataset.dataset_code}-{tenant.slug}-{case_seq}",
-                    input_summary=input_text[:2000],
-                    expected_summary=expected,
-                    tags=tags,
-                )
+        remaining -= 1
+        case_seq += 1
+        dataset = dataset_pool[case_seq % len(dataset_pool)]
+        if dataset.dataset_code == "retrieval" and data.documents:
+            # Retrieval cases carry document_ids ground truth derived from
+            # the tenant's own knowledge documents.
+            document = data.documents[(case_seq - 1) % len(data.documents)]
+            input_text = _document_query(document.title)
+            expected = {"document_ids": [str(document.id)]}
+            tags = ["retrieval", "synthetic"]
+        else:
+            scenario = scenario_pool[(case_seq - 1) % scenario_count]
+            input_text = scenario["user_message"]
+            expected = {
+                "tags": scenario["tags"],
+                "expectation": scenario["expectation"],
+            }
+            tags = list(scenario["tags"])
+        session.add(
+            EvaluationCase(
+                id=uuid4(),
+                tenant_id=tenant.id,
+                dataset_id=dataset.id,
+                case_key=f"{dataset.dataset_code}-{tenant.slug}-{case_seq}",
+                input_summary=input_text[:2000],
+                expected_summary=expected,
+                tags=tags,
             )
+        )
 
 
 # ---------------------------------------------------------------------------
