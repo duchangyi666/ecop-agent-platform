@@ -57,11 +57,21 @@ class AgentState(BaseModel):
     audit_event_ids: list[UUID] = Field(default_factory=list)
 
 
-def create_agent_state(*, scope: TenantScope, request_id: UUID, message: str) -> AgentState:
+def create_agent_state(
+    *,
+    scope: TenantScope,
+    request_id: UUID,
+    message: str,
+    history: list[ConversationMessage] | None = None,
+) -> AgentState:
+    """Build agent state. `history` carries prior turns so the model can
+    answer with multi-turn context; the current user message is appended."""
+    conversation = list(history or [])
+    conversation.append(ConversationMessage(role="user", content=message))
     return AgentState(
         request_id=request_id,
         tenant_scope=scope,
-        conversation=[ConversationMessage(role="user", content=message)],
+        conversation=conversation,
     )
 
 

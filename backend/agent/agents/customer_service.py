@@ -6,7 +6,7 @@ from typing import Any
 from langgraph.graph import END, START, StateGraph
 
 from backend.agent.contracts import SpecialistResult
-from backend.agent.state import AgentState, KnowledgeEvidence
+from backend.agent.state import AgentState, ConversationMessage, KnowledgeEvidence
 from backend.llm.contracts import ResponseDraft
 from backend.llm.context import ContextBudget, truncate_text
 from backend.llm.errors import ModelGatewayError
@@ -43,7 +43,7 @@ def _last_user_message(state: AgentState) -> str:
 
 
 def _prompt_messages(
-    user_message: str,
+    conversation: Sequence[ConversationMessage],
     knowledge_evidence: Sequence[KnowledgeEvidence] | None = None,
     prompt_registry: PromptRegistry | None = None,
     context_budget: ContextBudget | None = None,
@@ -64,7 +64,15 @@ def _prompt_messages(
             "\n\n可用知识依据（回答必须依据这些内容，未在依据中出现的业务结论不能声称）：\n"
             + "\n".join(evidence_lines)
         )
-    return truncate_text(system_prompt, budget.max_system_characters), user_message
+    # Reconstruct the prior dialogue so the model answers with full context.
+    history_lines: list[str] = []
+    for message in conversation:
+        speaker = "用户" if message.role == "user" else "客服"
+        history_lines.append(f"{speaker}：{message.content}")
+    user_prompt = "\n".join(history_lines)
+    return truncate_text(system_prompt, budget.max_system_characters), truncate_text(
+        user_prompt, budget.max_context_characters
+    )
 
 
 async def _customer_service_model_node(
@@ -73,7 +81,7 @@ async def _customer_service_model_node(
     model_gateway: ModelGateway,
 ) -> dict[str, Any]:
     system_prompt, user_prompt = _prompt_messages(
-        _last_user_message(state),
+        state.conversation,
         knowledge_evidence=state.knowledge_evidence,
     )
     next_call_count = state.model_call_count + 1

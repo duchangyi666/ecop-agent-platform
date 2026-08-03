@@ -280,9 +280,16 @@ export interface KnowledgeReindexResponse {
 
 /* ---------- customer consultation ---------- */
 
+export interface ChatHistoryItem {
+  role: "user" | "assistant" | "system";
+  content: string;
+}
+
 export interface CustomerConsultationRequest {
   thread_id: string;
   message: string;
+  /** Prior turns so the agent answers with full multi-turn context. */
+  history?: ChatHistoryItem[];
 }
 
 export interface CustomerConsultationResponse {

@@ -5,8 +5,14 @@ import { PanelRight, Send, Sparkles, Square } from "lucide-react";
 import { useConsultStream, type ConsultEvent } from "@/hooks/use-consult-stream";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
+import type { ChatHistoryItem } from "@/lib/types";
 
-function eventNote(event: ConsultEvent): string | null {
+interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+function processNote(event: ConsultEvent): string | null {
   if (event.event === "started") return "已受理您的问题，正在分析…";
   if (event.event === "evidence") return `已检索 ${String(event.data.count ?? 0)} 条相关资料`;
   if (event.event === "completed") return "回复已生成";
@@ -20,31 +26,41 @@ export function ChatWindow() {
   const [input, setInput] = useState("");
   const [showContext, setShowContext] = useState(false);
   const [threadId, setThreadId] = useState<string | null>(null);
-  const [lastUserMessage, setLastUserMessage] = useState("");
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Group SSE events into display steps: user message + live process notes.
-  const displaySteps = events.filter((event) => event.event !== "done");
+  // SSE process events (evidence / processing notes) shown under the current turn.
+  const processSteps = events.filter((event) => event.event !== "done");
+  const evidenceRaw = events.find((e) => e.event === "evidence")?.data.count;
+  const evidenceCount = typeof evidenceRaw === "number" ? evidenceRaw : 0;
+  const evidenceResults = events.find((e) => e.event === "evidence")?.data.results as
+    | Array<{ title: string; snippet?: string; score?: number | null; source?: string | null }>
+    | undefined;
+
+  // Append the assistant reply once a turn completes (multi-turn history).
+  useEffect(() => {
+    if (finalResponse) {
+      setMessages((prev) => [...prev, { role: "assistant", content: finalResponse }]);
+    }
+  }, [finalResponse]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [events.length, finalResponse, running]);
+  }, [messages.length, processSteps.length, running]);
 
   const submit = () => {
     const message = input.trim();
     if (!message || running) return;
     const thread = threadId ?? `chat-${crypto.randomUUID().slice(0, 8)}`;
     setThreadId(thread);
-    setLastUserMessage(message);
+    const history: ChatHistoryItem[] = messages.map((msg) => ({
+      role: msg.role,
+      content: msg.content,
+    }));
+    setMessages((prev) => [...prev, { role: "user", content: message }]);
     setInput("");
-    void run({ thread_id: thread, message });
+    void run({ thread_id: thread, message, history });
   };
-
-  const evidenceRaw = events.find((e) => e.event === "evidence")?.data.count;
-  const evidenceCount = typeof evidenceRaw === "number" ? evidenceRaw : 0;
-  const evidenceResults = events.find((e) => e.event === "evidence")?.data.results as
-    | Array<{ title: string; snippet?: string; score?: number | null; source?: string | null }>
-    | undefined;
 
   return (
     <div className="flex h-full min-h-0">
@@ -53,7 +69,9 @@ export function ChatWindow() {
         <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-6">
           <div>
             <p className="text-sm font-medium">智能客服对话</p>
-            <p className="text-xs text-muted-foreground">{threadId ? "对话进行中" : "新对话"}</p>
+            <p className="text-xs text-muted-foreground">
+              {messages.length > 0 ? `${messages.length} 条消息 · ${threadId ? "多轮对话中" : "新对话"}` : "新对话"}
+            </p>
           </div>
           <button
             onClick={() => setShowContext((v) => !v)}
@@ -68,9 +86,10 @@ export function ChatWindow() {
             上下文
           </button>
         </div>
+
         <div ref={scrollRef} className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-2xl px-6 py-8">
-            {displaySteps.length === 0 && !running && !finalResponse && !error && (
+            {messages.length === 0 && !running && !error && (
               <div className="flex flex-col items-center justify-center py-20 text-center">
                 <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-accent/10">
                   <Sparkles className="h-6 w-6 text-accent" />
@@ -78,23 +97,38 @@ export function ChatWindow() {
                 <h2 className="text-lg font-medium text-foreground">CloudDesk 智能客服</h2>
                 <p className="mt-1 max-w-md text-sm leading-relaxed text-muted-foreground">
                   我可以协助处理账户、账单、产品技术支持、SLA 与工单相关问题。
-                  描述您遇到的问题即可开始。
+                  描述您遇到的问题即可开始，支持连续对话。
                 </p>
               </div>
             )}
 
-            {/* User message + assistant processing trail */}
-            {threadId &&
-              displaySteps.map((event, index) => (
-                <div key={index} className="mb-5">
-                  {index === 0 && event.event === "started" && (
-                    <div className="mb-3 flex justify-end">
-                      <div className="max-w-[85%] rounded-2xl rounded-tr-md bg-accent px-4 py-2.5 text-sm leading-relaxed text-accent-foreground">
-                        {lastUserMessage}
-                      </div>
-                    </div>
-                  )}
-                  <div className="flex items-start gap-2.5">
+            {/* Full message history (multi-turn) */}
+            {messages.map((message, index) =>
+              message.role === "user" ? (
+                <div key={index} className="mb-4 flex justify-end">
+                  <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-tr-md bg-accent px-4 py-2.5 text-sm leading-relaxed text-accent-foreground">
+                    {message.content}
+                  </div>
+                </div>
+              ) : (
+                <div key={index} className="mb-4 flex items-start gap-2.5">
+                  <span className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted">
+                    <Sparkles className="h-3 w-3 text-muted-foreground" />
+                  </span>
+                  <div className="min-w-0 rounded-2xl rounded-tl-md border border-border bg-card px-4 py-3">
+                    <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+                      {message.content}
+                    </p>
+                  </div>
+                </div>
+              ),
+            )}
+
+            {/* Live processing trail for the in-flight turn */}
+            {processSteps.length > 0 && !finalResponse && (
+              <div className="mb-4">
+                {processSteps.map((event, index) => (
+                  <div key={index} className="mb-3 flex items-start gap-2.5">
                     <span className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted">
                       <Sparkles className="h-3 w-3 text-muted-foreground" />
                     </span>
@@ -102,7 +136,7 @@ export function ChatWindow() {
                       <p className="text-sm font-medium text-foreground">
                         {event.event === "evidence" ? "正在检索企业知识库" : "正在处理"}
                       </p>
-                      <p className="text-xs text-muted-foreground">{eventNote(event)}</p>
+                      <p className="text-xs text-muted-foreground">{processNote(event)}</p>
                       {event.event === "evidence" && (
                         <div className="mt-2 flex flex-wrap gap-2">
                           {Array.from({ length: Number(event.data.count ?? 0) }).map((_, i) => (
@@ -117,30 +151,19 @@ export function ChatWindow() {
                       )}
                     </div>
                   </div>
-                </div>
-              ))}
-
-            {/* Final assistant answer */}
-            {finalResponse && (
-              <div className="mb-5 flex items-start gap-2.5">
-                <span className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted">
-                  <Sparkles className="h-3 w-3 text-muted-foreground" />
-                </span>
-                <div className="min-w-0 rounded-2xl rounded-tl-md border border-border bg-card px-4 py-3">
-                  <p className="text-sm leading-relaxed text-foreground">{finalResponse}</p>
-                </div>
+                ))}
               </div>
             )}
 
-            {running && (
-              <div className="mb-5 flex items-center gap-2 text-xs text-muted-foreground">
+            {running && !finalResponse && (
+              <div className="mb-4 flex items-center gap-2 text-xs text-muted-foreground">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
                 正在处理
               </div>
             )}
 
             {error && (
-              <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+              <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
                 {error}
               </div>
             )}
@@ -161,7 +184,7 @@ export function ChatWindow() {
                   }
                 }}
                 rows={1}
-                placeholder="描述您的问题…"
+                placeholder="描述您的问题，支持连续对话…"
                 className="max-h-40 min-h-6 flex-1 resize-none bg-transparent px-1 py-1.5 text-sm leading-relaxed outline-none placeholder:text-muted-foreground"
               />
               {running ? (
@@ -184,7 +207,7 @@ export function ChatWindow() {
               )}
             </div>
             <p className="mt-2 px-1 text-xs text-muted-foreground">
-              可协助处理账户、账单、技术支持、SLA 与工单问题
+              可协助处理账户、账单、技术支持、SLA 与工单问题 · 支持多轮上下文
             </p>
           </div>
         </div>
@@ -196,9 +219,9 @@ export function ChatWindow() {
           <div className="space-y-5 p-5">
             <div>
               <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                当前请求
+                当前对话
               </h3>
-              <p className="mt-1.5 text-sm text-foreground">{threadId ?? "尚未提交问题"}</p>
+              <p className="mt-1.5 text-sm">{messages.length} 条消息</p>
               <p className="text-xs text-muted-foreground">线索 ID：{threadId ?? "-"}</p>
             </div>
             <div>

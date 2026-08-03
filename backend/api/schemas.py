@@ -25,11 +25,19 @@ class ApprovalActionRequest(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
 
 
+class ChatHistoryItem(BaseModel):
+    role: Literal["user", "assistant", "system"]
+    content: str = Field(min_length=1, max_length=4000)
+
+
 class CustomerConsultationRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     thread_id: str = Field(min_length=1, max_length=120)
     message: str = Field(min_length=1, max_length=2000)
+    # Optional prior turns so the agent can answer with full conversation
+    # context (multi-turn dialogue), not just the latest message.
+    history: list[ChatHistoryItem] | None = None
 
 
 class ResponseReviewSummary(BaseModel):

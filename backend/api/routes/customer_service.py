@@ -13,7 +13,7 @@ from backend.agent.consultation_workflow import (
     CustomerConsultationService,
     CustomerConsultationWorkflowRequest,
 )
-from backend.agent.state import create_agent_state
+from backend.agent.state import ConversationMessage, create_agent_state
 from backend.api.dependencies import (
     RequestContext,
     get_app_model_gateway,
@@ -32,6 +32,12 @@ from backend.rag.vector_store import KnowledgeVectorStore
 router = APIRouter(prefix="/api/v1", tags=["customer-service"])
 
 
+def _history_messages(history) -> list[ConversationMessage] | None:
+    if not history:
+        return None
+    return [ConversationMessage(role=item.role, content=item.content) for item in history]
+
+
 @router.post("/customer-consultations/stream")
 async def stream_customer_consultation(
     payload: CustomerConsultationRequest,
@@ -46,6 +52,7 @@ async def stream_customer_consultation(
             scope=context.scope,
             request_id=uuid4(),
             message=payload.message,
+            history=_history_messages(payload.history),
         ),
     )
     events: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
@@ -132,6 +139,7 @@ async def create_customer_consultation(
             scope=context.scope,
             request_id=uuid4(),
             message=payload.message,
+            history=_history_messages(payload.history),
         ),
     )
     result = await CustomerConsultationService(

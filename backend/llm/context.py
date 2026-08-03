@@ -7,6 +7,7 @@ from dataclasses import dataclass
 class ContextBudget:
     max_system_characters: int = 6000
     max_evidence_characters: int = 4000
+    max_context_characters: int = 6000
 
 
 def estimate_tokens(text: str) -> int:
