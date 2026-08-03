@@ -217,15 +217,42 @@ Token 只包含租户、用户、角色类型、签发时间和过期时间，�
 
 SSE 不推送模型 Token、思维链、系统 Prompt、Key 或知识原文；断流时取消当前工作流任务。
 
-## 本地前端控制台
+## 生产级前端（Next.js）
 
-FastAPI 会直接托管 `frontend/` 静态工作台，启动后端后访问：
+`frontend/` 是 Next.js + TypeScript + Tailwind CSS v4 生产级前端，提供三个门户：
+
+- **客户门户** `/portal`：提交问题（SSE 实时进度）、我的工单、处理记录
+- **客服工作台** `/workspace`：工单队列、工单处理、审批（批准/拒绝走 Checkpoint 恢复）、知识检索、咨询调试
+- **管理控制台** `/admin`：平台总览、Runtime Trace/成本/Agent、评测、知识库管理、会话活动
+
+启动（需先启动后端与数据库，见上文）：
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+访问 `http://localhost:3000/`，首次进入选择开发环境身份（租户 + 用户），请求通过 `next.config.ts` 的 rewrites 代理到 `http://localhost:8000`。认证沿用开发请求头边界（`X-Tenant-Id` / `X-Actor-Id` / `X-Actor-Type`），生产环境可切换 JWT。
+
+```powershell
+# 生产构建
+cd frontend
+npm run build
+npm run start
+```
+
+旧静态控制台保留在 `frontend_legacy/`，仍由 FastAPI 在 `http://localhost:8000/` 提供，用于兼容验证；新前端独立运行于 3000 端口。
+
+## 本地前端控制台（旧版）
+
+FastAPI 会直接托管 `frontend_legacy/` 静态工作台，启动后端后访问：
 
 ```text
 http://localhost:8000/
 ```
 
-工作台提供总览、SSE 客户咨询、会话、工单、审批、知识库、Runtime 和评测八个视图：填写租户/用户 UUID 获取 JWT Token 后，可完成会话创建与消息追加、工单创建与状态更新、审批查看与决策、知识检索/摄取/归档/重建索引、客户咨询 SSE 进度事件，以及 Runtime Trace、成本和 Agent 清单。它仍是静态托管的企业级运营界面，不包含生产级 Next.js 应用、正式登录页或完整 Admin Console。
+工作台提供总览、SSE 客户咨询、会话、工单、审批、知识库、Runtime 和评测八个视图：填写租户/用户 UUID 获取 JWT Token 后，可完成会话创建与消息追加、工单创建与状态更新、审批查看与决策、知识检索/摄取/归档/重建索引、客户咨询 SSE 进度事件，以及 Runtime Trace、成本和 Agent 清单。它仍是静态托管的企业级运营界面，不含生产级 Next.js 应用。
 
 ## 评测系统
 
