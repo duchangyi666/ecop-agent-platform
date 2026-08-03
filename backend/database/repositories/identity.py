@@ -6,6 +6,7 @@ from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database.base import TenantScope
+from backend.database.models.billing import CustomerContact
 from backend.database.models.identity import Permission, Role, User, UserRole
 from backend.database.repositories.base import TenantScopedRepository
 
@@ -58,3 +59,15 @@ class IdentityRepository(TenantScopedRepository):
             .limit(1)
         )
         return await self.session.scalar(statement) is not None
+
+    async def get_customer_for_user(self, *, scope: TenantScope, user_id: UUID) -> UUID | None:
+        statement = (
+            select(CustomerContact.customer_id)
+            .where(
+                CustomerContact.user_id == user_id,
+                CustomerContact.tenant_id == scope.tenant_id,
+                CustomerContact.deleted_at.is_(None),
+            )
+            .limit(1)
+        )
+        return await self.session.scalar(statement)

@@ -20,6 +20,12 @@ function processNote(event: ConsultEvent): string | null {
   return null;
 }
 
+const ACTION_LABELS: Record<string, string> = {
+  request_refund: "已发起退款申请",
+  create_ticket: "已创建工单",
+  list_payments: "已查询支付记录",
+};
+
 export function ChatWindow() {
   const identity = useAuthStore((state) => state.identity);
   const { events, running, finalResponse, error, run, cancel } = useConsultStream();
@@ -156,31 +162,45 @@ export function ChatWindow() {
             {/* Live processing trail for the in-flight turn */}
             {processSteps.length > 0 && !finalResponse && (
               <div className="mb-4">
-                {processSteps.map((event, index) => (
-                  <div key={index} className="mb-3 flex items-start gap-2.5">
-                    <span className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted">
-                      <Sparkles className="h-3 w-3 text-muted-foreground" />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-foreground">
-                        {event.event === "evidence" ? "正在检索企业知识库" : "正在处理"}
+                {processSteps.map((event, index) =>
+                  event.event === "action" ? (
+                    <div
+                      key={index}
+                      className="mb-3 rounded-xl border border-accent/40 bg-accent/5 px-4 py-3"
+                    >
+                      <p className="text-sm font-medium text-accent">
+                        {ACTION_LABELS[String(event.data.action)] ?? "已执行业务操作"}
                       </p>
-                      <p className="text-xs text-muted-foreground">{processNote(event)}</p>
-                      {event.event === "evidence" && (
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {Array.from({ length: Number(event.data.count ?? 0) }).map((_, i) => (
-                            <span
-                              key={i}
-                              className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground"
-                            >
-                              资料 {i + 1}
-                            </span>
-                          ))}
-                        </div>
-                      )}
+                      <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-foreground">
+                        {String(event.data.summary ?? "")}
+                      </p>
                     </div>
-                  </div>
-                ))}
+                  ) : (
+                    <div key={index} className="mb-3 flex items-start gap-2.5">
+                      <span className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted">
+                        <Sparkles className="h-3 w-3 text-muted-foreground" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-foreground">
+                          {event.event === "evidence" ? "正在检索企业知识库" : "正在处理"}
+                        </p>
+                        <p className="text-xs text-muted-foreground">{processNote(event)}</p>
+                        {event.event === "evidence" && (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {Array.from({ length: Number(event.data.count ?? 0) }).map((_, i) => (
+                              <span
+                                key={i}
+                                className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground"
+                              >
+                                资料 {i + 1}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ),
+                )}
               </div>
             )}
 

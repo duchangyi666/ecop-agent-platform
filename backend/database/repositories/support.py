@@ -444,6 +444,18 @@ class SupportRepository(TenantScopedRepository):
         await self.session.flush()
         return conversation
 
+    async def get_conversation_by_thread(
+        self,
+        *,
+        scope: TenantScope,
+        thread_id: str,
+    ) -> Conversation | None:
+        statement = self._tenant_visible(select(Conversation), Conversation, scope=scope).where(
+            Conversation.thread_id == thread_id,
+            Conversation.deleted_at.is_(None),
+        )
+        return await self.session.scalar(statement)
+
     async def list_conversations(
         self,
         *,

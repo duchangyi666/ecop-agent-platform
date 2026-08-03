@@ -288,6 +288,7 @@ class Conversation(Base, TenantAuditMixin):
     __tablename__ = "conversations"
     __table_args__ = (
         UniqueConstraint("tenant_id", "id", name="uq_conversations_tenant_id_id"),
+        UniqueConstraint("tenant_id", "thread_id", name="uq_conversations_tenant_id_thread_id"),
         ForeignKeyConstraint(
             ["tenant_id", "customer_id"],
             ["customers.tenant_id", "customers.id"],
@@ -305,6 +306,7 @@ class Conversation(Base, TenantAuditMixin):
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
     customer_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True, index=True)
     user_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True, index=True)
+    thread_id: Mapped[str | None] = mapped_column(String(160), nullable=True, index=True)
     channel: Mapped[str] = mapped_column(String(50), nullable=False)
     subject: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[str] = mapped_column(String(50), nullable=False)

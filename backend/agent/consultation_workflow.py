@@ -9,6 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from backend.agent.actions import ConversationActionExecutor, action_to_evidence
 from backend.agent.graphs.main_graph import build_main_graph
 from backend.agent.state import AgentState, KnowledgeEvidence
 from backend.database.models.governance import MemoryRecord
@@ -205,6 +206,35 @@ class CustomerConsultationService:
                 },
             )
 
+        # Conversation -> business execution. The model decides whether this
+        # turn is a pure question or a real business request; the executor then
+        # performs it against PostgreSQL and the outcome is grounded into the
+        # answer and surfaced as an evidence card.
+        if self.session_factory is not None:
+            executor = ConversationActionExecutor(self.session_factory)
+            decision = await executor.decide(self.model_gateway, user_message)
+            if decision.action != "answer":
+                action_result = await executor.execute(
+                    scope=request.state.tenant_scope,
+                    decision=decision,
+                    user_message=user_message,
+                    thread_id=request.thread_id,
+                )
+                if action_result is not None:
+                    evidence = [*evidence, action_to_evidence(action_result)]
+                    graph_state = request.state.model_copy(
+                        update={"knowledge_evidence": evidence}
+                    )
+                    if self.event_sink is not None:
+                        await self.event_sink(
+                            "action",
+                            {
+                                "thread_id": request.thread_id,
+                                "action": action_result.action,
+                                "summary": action_result.summary,
+                            },
+                        )
+
         result = await run_customer_consultation_graph(
             thread_id=request.thread_id,
             state=graph_state,
@@ -267,6 +297,45 @@ class CustomerConsultationService:
                     "model_route_model": route.model,
                 },
             )
+            # Persist the conversation and this turn's messages so dialogue
+            # history is a real business record, not only browser state.
+            customer_id = request.state.customer_id
+            if customer_id is None and scope.actor_id is not None:
+                customer_id = await uow.identity.get_customer_for_user(
+                    scope=scope, user_id=scope.actor_id
+                )
+            conversation = await uow.support.get_conversation_by_thread(
+                scope=scope, thread_id=request.thread_id
+            )
+            if conversation is None:
+                conversation = await uow.support.create_conversation(
+                    scope=scope,
+                    customer_id=customer_id,
+                    user_id=scope.actor_id,
+                    channel="ai_chat",
+                    subject=(user_message[:255] or "智能客服对话"),
+                )
+                conversation.thread_id = request.thread_id
+            await uow.support.append_conversation_message(
+                scope=scope,
+                conversation_id=conversation.id,
+                author_id=scope.actor_id,
+                author_type="user",
+                role="user",
+                body=user_message[:4000],
+                visibility="public",
+            )
+            if result.final_response:
+                await uow.support.append_conversation_message(
+                    scope=scope,
+                    conversation_id=conversation.id,
+                    author_id=None,
+                    author_type="agent",
+                    role="assistant",
+                    body=result.final_response[:4000],
+                    visibility="public",
+                )
+
             await uow.governance.complete_runtime_trace(
                 trace_id=trace.id,
                 status=result.status,

@@ -4,7 +4,7 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
-models/
+/models/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/

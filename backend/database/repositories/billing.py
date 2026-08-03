@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.database.base import TenantScope
 from backend.database.models.billing import Payment, Refund
 from backend.database.repositories.base import TenantScopedRepository
-from backend.domain.billing import RefundStatus
+from backend.domain.billing import PaymentStatus, RefundStatus
 from backend.domain.common import DomainError, ensure_money, ensure_utc
 
 
@@ -49,6 +49,20 @@ class BillingRepository(TenantScopedRepository):
     async def get_refund_by_idempotency_key(self, *, scope: TenantScope, idempotency_key: str) -> Refund | None:
         statement = self._tenant_visible(select(Refund), Refund, scope=scope).where(Refund.idempotency_key == idempotency_key)
         return await self.session.scalar(statement)
+
+    async def list_recent_payments(
+        self,
+        *,
+        scope: TenantScope,
+        customer_id: UUID,
+        limit: int = 5,
+    ) -> list[Payment]:
+        statement = self._tenant_visible(select(Payment), Payment, scope=scope).where(
+            Payment.customer_id == customer_id,
+            Payment.status == PaymentStatus.SUCCEEDED,
+        )
+        result = await self.session.scalars(statement.order_by(Payment.paid_at.desc()).limit(limit))
+        return list(result.all())
 
     async def create_refund_request(
         self,

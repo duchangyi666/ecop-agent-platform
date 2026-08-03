@@ -10,7 +10,7 @@
 - LangGraph：1.0.9
 - PostgreSQL：项目专用 Docker 容器，映射端口 `54329`
 - pymilvus：2.4.9（RAG 向量存储；BGE-M3 使用可选 `sentence-transformers`）
-- Alembic 当前迁移头：`008_conversations`
+- Alembic 当前迁移头：`009_conversation_thread`
 - 数据库连接：`postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations`
 
 ## 启动数据库与验证
