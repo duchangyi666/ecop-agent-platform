@@ -17,6 +17,7 @@ from backend.api.routes.approvals import router as approvals_router
 from backend.api.routes.conversations import router as conversations_router
 from backend.api.routes.customer_service import router as customer_service_router
 from backend.api.routes.evaluations import router as evaluations_router
+from backend.api.routes.identity import router as identity_router
 from backend.api.routes.knowledge import router as knowledge_router
 from backend.api.routes.refunds import router as refunds_router
 from backend.api.routes.runtime import router as runtime_router
@@ -29,7 +30,7 @@ from backend.rag.vector_store import KnowledgeVectorStore, create_knowledge_vect
 
 logger = logging.getLogger(__name__)
 _UNSET = object()
-FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
+FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend_legacy"
 
 
 def _request_id(request: Request) -> str:
@@ -92,6 +93,7 @@ def create_app(
     app.include_router(knowledge_router)
     app.include_router(auth_router)
     app.include_router(evaluations_router)
+    app.include_router(identity_router)
     app.include_router(runtime_router)
 
     if FRONTEND_DIR.is_dir():

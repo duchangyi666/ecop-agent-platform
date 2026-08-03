@@ -500,6 +500,31 @@ class KnowledgeReindexResponse(BaseModel):
     vector_indexed: bool
 
 
+class TenantItem(BaseModel):
+    id: UUID
+    slug: str
+    name: str
+    status: str
+
+
+class TenantListResponse(BaseModel):
+    request_id: str
+    tenants: list[TenantItem] = Field(default_factory=list)
+
+
+class IdentityUserItem(BaseModel):
+    id: UUID
+    email: str
+    display_name: str
+    status: str
+
+
+class TenantUsersResponse(BaseModel):
+    request_id: str
+    tenant_id: UUID
+    users: list[IdentityUserItem] = Field(default_factory=list)
+
+
 __all__ = [
     "ApprovalActionItem",
     "ApprovalDetailResponse",
@@ -521,8 +546,12 @@ __all__ = [
     "EvaluationRunRequest",
     "EvaluationRunResponse",
     "HealthResponse",
+    "IdentityUserItem",
     "KnowledgeDocumentResponse",
     "KnowledgeDeleteResponse",
+    "TenantItem",
+    "TenantListResponse",
+    "TenantUsersResponse",
     "KnowledgeDocumentListItem",
     "KnowledgeDocumentListResponse",
     "KnowledgeIngestResponse",

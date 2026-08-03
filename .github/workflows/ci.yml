@@ -18,8 +18,23 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Check frontend syntax
-        run: node --check frontend/app.js
+      - name: Check legacy frontend syntax
+        run: node --check frontend_legacy/app.js
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci --no-audit --no-fund
+
+      - name: Lint frontend
+        run: |
+          cd frontend
+          npm run lint
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm run build
 
       - name: Install project
         run: |

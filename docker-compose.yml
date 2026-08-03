@@ -176,8 +176,10 @@ services:
       dockerfile: infra/docker/frontend.Dockerfile
     container_name: ecop-frontend
     restart: unless-stopped
+    environment:
+      - BACKEND_URL=http://backend-api:8000
     ports:
-      - "3000:80"
+      - "3000:3000"
     depends_on:
       - backend-api
 
