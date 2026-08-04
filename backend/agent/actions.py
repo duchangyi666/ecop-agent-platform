@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.agent.state import ConversationMessage, KnowledgeEvidence
 from backend.agent.tools.billing import BillingTool, RefundToolRequest
+from backend.core.retry import with_retry
 from backend.agent.tools.ticket import TicketCreateRequest, TicketTool
 from backend.database.base import TenantScope
 from backend.database.unit_of_work import UnitOfWork
@@ -134,12 +135,23 @@ class ConversationActionExecutor:
             return None, None
         if not decision.ready and decision.question:
             return None, decision.question
-        result = await self.execute(
-            scope=state.tenant_scope,
-            decision=decision,
-            user_message=user_message,
-            thread_id=thread_id,
-        )
+        # Three-layer resilience around the business tool execution: transient
+        # failures retry, then degrade to "no action" so the conversation can
+        # still answer from knowledge instead of crashing.
+        wrapped = with_retry(
+            agent_type=domain,
+            agent_fallback=lambda exc: None,
+            system_fallback=lambda exc: None,
+        )(self.execute)
+        try:
+            result = await wrapped(
+                scope=state.tenant_scope,
+                decision=decision,
+                user_message=user_message,
+                thread_id=thread_id,
+            )
+        except DomainError:
+            result = None
         return result, None
 
     async def execute(

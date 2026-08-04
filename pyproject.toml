@@ -27,6 +27,9 @@ dependencies = [
 bge = [
   "sentence-transformers==3.3.1",
 ]
+mcp = [
+  "mcp>=1.0",
+]
 
 [tool.setuptools.packages.find]
 include = ["backend*", "mock_services*"]

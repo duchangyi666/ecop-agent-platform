@@ -131,6 +131,72 @@ class DeepSeekGateway:
             )
         )
 
+    def generate_stream(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+    ):
+        """True token-level streaming over the OpenAI-compatible SSE endpoint."""
+
+        async def _stream():
+            if self.settings.api_key is None:
+                raise ModelGatewayError(
+                    ModelCallError(
+                        code="model_not_configured",
+                        retryable=False,
+                        safe_message="当前智能回复服务未配置",
+                    )
+                )
+            api_key = self.settings.api_key.get_secret_value()
+            body = {
+                "model": self.settings.model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "stream": True,
+                "temperature": 0,
+            }
+            url = f"{self.settings.base_url.rstrip('/')}/chat/completions"
+            async with self._client.stream(
+                "POST",
+                url,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=body,
+                timeout=self.settings.timeout_seconds,
+            ) as response:
+                if response.status_code >= 400:
+                    raise ModelGatewayError(
+                        ModelCallError(
+                            code="model_http_error",
+                            retryable=False,
+                            safe_message="模型请求未被接受",
+                        )
+                    )
+                async for line in response.aiter_lines():
+                    if not line or not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        payload = json.loads(data)
+                    except (ValueError, json.JSONDecodeError):
+                        continue
+                    choices = payload.get("choices") or []
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta") or {}
+                    content = delta.get("content")
+                    if content:
+                        yield content
+
+        return _stream()
+
     def _request_body(
         self,
         *,

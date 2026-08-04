@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Protocol
 
 from pydantic import BaseModel
@@ -15,6 +16,14 @@ class ModelGateway(Protocol):
         user_prompt: str,
         response_model: type[BaseModel],
     ) -> tuple[BaseModel, ModelUsage]:
+        ...
+
+    def generate_stream(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+    ) -> AsyncIterator[str]:
         ...
 
 

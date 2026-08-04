@@ -34,5 +34,18 @@ class FakeModelGateway:
             ) from exc
         return result, ModelUsage(provider="fake", model="fake", latency_ms=0)
 
+    def generate_stream(self, *, system_prompt: str, user_prompt: str):
+        del system_prompt, user_prompt
+
+        async def _stream():
+            self.call_count += 1
+            if isinstance(self.response, Exception):
+                raise self.response
+            text = getattr(self.response, "answer", "") or ""
+            for start in range(0, len(text), 4):
+                yield text[start : start + 4]
+
+        return _stream()
+
 
 __all__ = ["FakeModelGateway"]

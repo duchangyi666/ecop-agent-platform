@@ -96,6 +96,18 @@ def create_app(
     app.include_router(identity_router)
     app.include_router(runtime_router)
 
+    # Mount in-process MCP servers (knowledge + web search) before the static
+    # catch-all so /mcp/* is reachable. Guarded so a missing `mcp` dependency or
+    # import issue never blocks startup.
+    try:
+        from backend.mcp.knowledge_base_server import mcp as kb_mcp
+        from backend.mcp.web_search_server import mcp as ws_mcp
+
+        app.mount("/mcp/kb", kb_mcp.streamable_http_app())
+        app.mount("/mcp/web-search", ws_mcp.streamable_http_app())
+    except Exception as exc:  # noqa: BLE001 - MCP is optional
+        logger.warning("mcp mount skipped: %s", exc)
+
     if FRONTEND_DIR.is_dir():
         app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
 

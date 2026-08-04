@@ -10,15 +10,18 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.agent.actions import ConversationActionExecutor, action_to_evidence
-from backend.agent.agents.supervisor import llm_route
+from backend.agent.agents.customer_service import _MODEL_ERROR_RESPONSE, _prompt_messages
 from backend.agent.graphs.main_graph import build_main_graph
+from backend.core.orchestrator import route_intent
+from backend.agent.nodes.guards import domain_guard_node, input_security_guard_node
 from backend.agent.state import AgentState, KnowledgeEvidence
 from backend.database.models.governance import MemoryRecord
 from backend.database.unit_of_work import UnitOfWork
-from backend.llm.contracts import ModelUsage
+from backend.llm.contracts import ModelUsage, ResponseDraft
+from backend.llm.errors import ModelGatewayError
 from backend.llm.gateway import ModelGateway
 from backend.llm.router import ModelRouter, ModelTask, create_default_model_router
-from backend.llm.safety import ResponseSafetyDecision
+from backend.llm.safety import ResponseSafetyDecision, ResponseSafetyFilter
 from backend.memory.service import MemoryService
 from backend.rag.retriever import ConsultationKnowledgeRetriever
 
@@ -217,7 +220,7 @@ class CustomerConsultationService:
         # (or asks for clarification). Business domains own their own tools.
         clarification: str | None = None
         if self.session_factory is not None:
-            domain = await llm_route(self.model_gateway, request.state)
+            domain = await route_intent(self.model_gateway, request.state)
             executor = ConversationActionExecutor(self.session_factory)
             action_result, clarification = await executor.run_domain_action(
                 self.model_gateway,
@@ -249,12 +252,9 @@ class CustomerConsultationService:
                 final_response=clarification,
                 response_review=None,
             )
+            await self._emit_tokens(request.thread_id, clarification)
         else:
-            result = await run_customer_consultation_graph(
-                thread_id=request.thread_id,
-                state=graph_state,
-                model_gateway=self.model_gateway,
-            )
+            result = await self._stream_answer(request, graph_state)
         result = replace(result, knowledge_evidence_count=len(evidence))
         if self.event_sink is not None:
             await self.event_sink(
@@ -362,6 +362,104 @@ class CustomerConsultationService:
             trace_id=trace.id,
             audit_event_ids=[audit.id],
             memory_candidate_count=len(memory_records),
+        )
+
+    async def _emit_tokens(self, thread_id: str, text: str) -> None:
+        if self.event_sink is None or not text:
+            return
+        for start in range(0, len(text), 3):
+            await self.event_sink(
+                "token",
+                {"thread_id": thread_id, "text": text[start : start + 3]},
+            )
+
+    async def _stream_answer(
+        self,
+        request: CustomerConsultationWorkflowRequest,
+        graph_state: AgentState,
+    ) -> CustomerConsultationResult:
+        """True token-level streaming of the grounded answer.
+
+        Runs the deterministic guards, then streams the customer-service reply
+        from the model (grounded on the retrieved/action evidence), emitting
+        token events as they arrive, and finally applies the safety filter.
+        """
+        state = request.state
+        guard = input_security_guard_node(state)["guard_decision"]
+        if guard.status != "allow":
+            status = "blocked" if guard.status == "block" else "human_handoff"
+            message = (
+                "抱歉，我无法协助获取系统配置、内部提示、凭据或未经授权的数据。"
+                "我可以继续帮助您处理 CloudDesk 账户、账单、产品支持和工单相关问题。"
+                if status == "blocked"
+                else "该操作需要人工安全审核。"
+            )
+            return CustomerConsultationResult(
+                thread_id=request.thread_id,
+                status=status,
+                next_action="finish" if status == "blocked" else "human_handoff",
+                final_response=message,
+                response_review=None,
+            )
+        domain = domain_guard_node(state)["domain_decision"]
+        if domain.status != "in_scope":
+            if domain.status == "needs_clarification":
+                message = "请补充具体业务场景。"
+            else:
+                message = "请求超出当前平台支持范围。"
+            await self._emit_tokens(request.thread_id, message)
+            return CustomerConsultationResult(
+                thread_id=request.thread_id,
+                status="needs_clarification" if domain.status == "needs_clarification" else "out_of_scope",
+                next_action="ask_clarification" if domain.status == "needs_clarification" else "finish",
+                final_response=message,
+                response_review=None,
+            )
+
+        system_prompt, user_prompt = _prompt_messages(
+            graph_state.conversation,
+            knowledge_evidence=graph_state.knowledge_evidence,
+        )
+        accumulated: list[str] = []
+        try:
+            async for token in self.model_gateway.generate_stream(
+                system_prompt=system_prompt, user_prompt=user_prompt
+            ):
+                accumulated.append(token)
+                if self.event_sink is not None:
+                    await self.event_sink(
+                        "token", {"thread_id": request.thread_id, "text": token}
+                    )
+        except ModelGatewayError:
+            return CustomerConsultationResult(
+                thread_id=request.thread_id,
+                status="human_handoff",
+                next_action="human_handoff",
+                final_response=_MODEL_ERROR_RESPONSE,
+                response_review=None,
+            )
+        text = "".join(accumulated).strip()
+        if not text:
+            text = "抱歉，我暂时无法生成回复，请稍后再试或联系人工客服。"
+
+        draft = ResponseDraft(answer=text, next_action="finish", confidence=0.8)
+        decision = ResponseSafetyFilter().evaluate(
+            draft, has_evidence=bool(graph_state.knowledge_evidence)
+        )
+        if decision.status != "allow":
+            return CustomerConsultationResult(
+                thread_id=request.thread_id,
+                status="human_handoff",
+                next_action="human_handoff",
+                final_response=decision.response,
+                response_review=decision,
+            )
+        return CustomerConsultationResult(
+            thread_id=request.thread_id,
+            status="completed",
+            next_action="finish",
+            final_response=decision.response,
+            response_review=decision,
         )
 
     @staticmethod
