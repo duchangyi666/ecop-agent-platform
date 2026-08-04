@@ -39,13 +39,7 @@ async def search_knowledge(query: str, tenant_id: str, top_k: int = 3) -> list[d
             vector_store=create_knowledge_vector_store(),
             reranker=create_reranker(get_rag_settings()),
         )
-        loop = asyncio.get_running_loop()
-        evidence = await loop.run_in_executor(
-            None,
-            lambda: asyncio.run(
-                retriever.retrieve(scope=scope, query=query, limit=top_k)
-            ),
-        )
+        evidence = await retriever.retrieve(scope=scope, query=query, limit=top_k)
         return [
             {
                 "document_id": str(item.document_id),

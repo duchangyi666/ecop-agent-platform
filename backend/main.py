@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 import logging
 from pathlib import Path
 from typing import Any
@@ -46,15 +46,23 @@ def _error_response(*, request: Request, status_code: int, code: str, message: s
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    yield
-    gateway = getattr(app.state, "model_gateway", None)
-    close = getattr(gateway, "aclose", None)
-    if close is not None:
-        await close()
-    vector_store = getattr(app.state, "knowledge_vector_store", None)
-    close_vector_store = getattr(vector_store, "close", None)
-    if close_vector_store is not None:
-        await close_vector_store()
+    # Enter each mounted MCP sub-app's lifespan so its streamable-HTTP task
+    # group is initialised (FastMCP requires run()/lifespan before serving).
+    stack = AsyncExitStack()
+    for sub_app in getattr(app.state, "mcp_apps", []) or []:
+        await stack.enter_async_context(sub_app.router.lifespan_context(sub_app))
+    try:
+        yield
+    finally:
+        await stack.aclose()
+        gateway = getattr(app.state, "model_gateway", None)
+        close = getattr(gateway, "aclose", None)
+        if close is not None:
+            await close()
+        vector_store = getattr(app.state, "knowledge_vector_store", None)
+        close_vector_store = getattr(vector_store, "close", None)
+        if close_vector_store is not None:
+            await close_vector_store()
 
 
 def create_app(
@@ -103,9 +111,13 @@ def create_app(
         from backend.mcp.knowledge_base_server import mcp as kb_mcp
         from backend.mcp.web_search_server import mcp as ws_mcp
 
-        app.mount("/mcp/kb", kb_mcp.streamable_http_app())
-        app.mount("/mcp/web-search", ws_mcp.streamable_http_app())
+        kb_app = kb_mcp.streamable_http_app()
+        ws_app = ws_mcp.streamable_http_app()
+        app.mount("/mcp/kb", kb_app)
+        app.mount("/mcp/web-search", ws_app)
+        app.state.mcp_apps = [kb_app, ws_app]
     except Exception as exc:  # noqa: BLE001 - MCP is optional
+        app.state.mcp_apps = []
         logger.warning("mcp mount skipped: %s", exc)
 
     if FRONTEND_DIR.is_dir():
