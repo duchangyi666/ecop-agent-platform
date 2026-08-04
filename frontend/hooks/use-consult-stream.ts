@@ -18,6 +18,7 @@ export function useConsultStream() {
   const [events, setEvents] = useState<ConsultEvent[]>([]);
   const [running, setRunning] = useState(false);
   const [finalResponse, setFinalResponse] = useState<string | null>(null);
+  const [streamText, setStreamText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -38,6 +39,7 @@ export function useConsultStream() {
     abortRef.current = controller;
     setEvents([]);
     setFinalResponse(null);
+    setStreamText("");
     setError(null);
     setRunning(true);
     try {
@@ -85,6 +87,9 @@ export function useConsultStream() {
             data = { raw: dataLines.join("\n") };
           }
           setEvents((prev) => [...prev, { event, data }]);
+          if (event === "token" && typeof data.text === "string") {
+            setStreamText((prev) => prev + data.text);
+          }
           if (event === "done" && typeof data.final_response === "string") {
             setFinalResponse(data.final_response);
           }
@@ -101,5 +106,5 @@ export function useConsultStream() {
     }
   }, []);
 
-  return { events, running, finalResponse, error, run, cancel };
+  return { events, running, finalResponse, streamText, error, run, cancel };
 }

@@ -28,7 +28,7 @@ const ACTION_LABELS: Record<string, string> = {
 
 export function ChatWindow() {
   const identity = useAuthStore((state) => state.identity);
-  const { events, running, finalResponse, error, run, cancel } = useConsultStream();
+  const { events, running, finalResponse, streamText, error, run, cancel } = useConsultStream();
   const [input, setInput] = useState("");
   const [showContext, setShowContext] = useState(false);
   const [threadId, setThreadId] = useState<string | null>(null);
@@ -204,7 +204,21 @@ export function ChatWindow() {
               </div>
             )}
 
-            {running && !finalResponse && (
+            {/* Live streaming answer bubble */}
+            {running && streamText && (
+              <div className="mb-4 flex items-start gap-2.5">
+                <span className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted">
+                  <Sparkles className="h-3 w-3 text-muted-foreground" />
+                </span>
+                <div className="min-w-0 rounded-2xl rounded-tl-md border border-border bg-card px-4 py-3">
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+                    {streamText}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {running && !finalResponse && !streamText && (
               <div className="mb-4 flex items-center gap-2 text-xs text-muted-foreground">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
                 正在处理
