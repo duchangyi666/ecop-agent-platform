@@ -11,48 +11,6 @@
 - Alembic 当前迁移头：`009_conversation_thread`
 - 数据库连接：`postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations`
 
-## 启动数据库与验证
-
-在项目根目录执行：
-
-```powershell
-docker compose -f infra/compose/docker-compose.db.yml up -d postgres
-$env:PYTHONNOUSERSITE = "1"
-& E:\anaconda3\envs\edu_agent\python.exe -m alembic upgrade head
-& E:\anaconda3\envs\edu_agent\python.exe scripts/verify_database.py
-& E:\anaconda3\envs\edu_agent\python.exe -m pytest tests/unit tests/integration/database -q
-```
-
-验证多智能体工作流：
-
-```powershell
-$env:PYTHONNOUSERSITE = "1"
-& E:\anaconda3\envs\edu_agent\python.exe -m pip check
-& E:\anaconda3\envs\edu_agent\python.exe -m pytest tests/unit tests/integration/database tests/integration/agent tests/integration/api tests/integration/vectorstore -q
-& E:\anaconda3\envs\edu_agent\python.exe -m compileall -q backend scripts
-& E:\anaconda3\envs\edu_agent\python.exe -m alembic check
-```
-
-如需显式指定连接串：
-
-```powershell
-$env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations"
-```
-
-## 生成企业级 Synthetic Data
-
-`scripts/generate_synthetic_data.py` 生成业务一致的模拟企业数据，覆盖规格第 25 节的完整租户图谱，满足全部外键、唯一约束和领域状态机。规模可配置：
-
-- `--scale small`：10 租户 / 600 用户 / 200 客户 / 1200 支付 / 600 工单 / 1000 评测用例，适合快速验证。
-- `--scale full`：50 租户 / 5 万用户 / 1 万客户 / 2 万订阅 / 10 万支付 / 2 万退款 / 5 万工单 / 300 文档 / 5000 记忆 / 1000 评测用例。
-
-```powershell
-$env:PYTHONNOUSERSITE = "1"
-$env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations"
-& E:\anaconda3\envs\edu_agent\python.exe -m alembic upgrade head
-& E:\anaconda3\envs\edu_agent\python.exe scripts/generate_synthetic_data.py --scale small --reset --seed 42
-& E:\anaconda3\envs\edu_agent\python.exe scripts/verify_synthetic_data.py
-```
 
 说明：
 
@@ -83,11 +41,6 @@ docker compose up -d --build
 
 首次启动需要执行数据库迁移：
 
-```powershell
-$env:PYTHONNOUSERSITE = "1"
-$env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations"
-& E:\anaconda3\envs\edu_agent\python.exe -m alembic upgrade head
-```
 
 GitHub Actions 流水线见 `.github/workflows/ci.yml`，会启动 PostgreSQL/Redis/Milvus/etcd/MinIO，执行迁移、完整测试和迁移漂移检查。
 
@@ -114,12 +67,7 @@ GitHub Actions 流水线见 `.github/workflows/ci.yml`，会启动 PostgreSQL/Re
 
 Docker Compose 已包含 `backend-worker` 和 `backend-scheduler` 服务。本地单独启动：
 
-```powershell
-$env:PYTHONNOUSERSITE = "1"
-$env:REDIS_URL = "redis://localhost:16380/0"
-& E:\anaconda3\envs\edu_agent\python.exe -m backend.tasks.worker
-& E:\anaconda3\envs\edu_agent\python.exe -m backend.tasks.scheduler
-```
+
 
 当前 Worker 只处理已实现的维护任务，后续可扩展知识重索引、评测执行和通知发送。
 
@@ -127,11 +75,6 @@ $env:REDIS_URL = "redis://localhost:16380/0"
 
 启动独立 FastAPI 应用：
 
-```powershell
-$env:PYTHONNOUSERSITE = "1"
-$env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations"
-& E:\anaconda3\envs\edu_agent\python.exe -m uvicorn backend.main:app --reload
-```
 
 当前已提供：
 
@@ -270,16 +213,6 @@ http://localhost:8000/
 - **QA Correctness（`kind=correctness`）**：端到端问答评测——对每条专家标注用例执行"检索 → 生成 → LLM-as-Judge"，用 `ModelGateway` 的 DeepSeek 网关对比 Agent 回答与标准答案的语义一致性，输出 `correctness` 指标；Judge 调用失败时保守判 incorrect 并记录 `judge_error_count`。
 - **安全 Guard（`kind=guard`）**：对 `InputSecurityGuard` / `DomainGuard` 做确定性离线评测，输出 `status_accuracy`、误报率 `fpr`、漏报率 `fnr`、拦截成功率 `interception_rate` 与 `domain_accuracy`。
 
-种子数据集与离线质量检查：
-
-```powershell
-$env:PYTHONNOUSERSITE = "1"
-$env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations"
-# 离线检查 Guard 用例是否按标签命中规则（不依赖数据库）
-& E:\anaconda3\envs\edu_agent\python.exe scripts/verify_agent_evaluation.py --offline-only
-# 入库种子数据（agent-qa 30 条 + agent-guard 34 条）并跑两套评测
-& E:\anaconda3\envs\edu_agent\python.exe scripts/verify_agent_evaluation.py --tenant-id <租户UUID>
-```
 
 通过 HTTP API 触发（需要 `evaluation.run` 权限）：
 
@@ -292,15 +225,6 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/v1/evaluations/run
 
 当前 Guard 数据集用例与规则同源（按规则反推设计），漏报率检验需要引入对抗性变体数据，属于后续阶段。
 
-基于当前租户 active 文档生成一个简单检索评测集：
-
-```powershell
-$env:PYTHONNOUSERSITE = "1"
-& E:\anaconda3\envs\edu_agent\python.exe scripts/seed_evaluation.py `
-  --tenant-id <租户UUID> `
-  --dataset-code tenant-retrieval `
-  --name "Tenant Retrieval Dataset"
-```
 
 ## 长期记忆
 
@@ -343,13 +267,6 @@ Runtime API 基于 PostgreSQL 中的 `runtime_traces`、`runtime_spans`、`tool_
 - `GET/POST /monitoring/incidents`：故障事件；
 - `POST/GET /notification/notifications`：通知队列。
 
-启动 Mock 服务：
-
-```powershell
-$env:PYTHONNOUSERSITE = "1"
-& E:\anaconda3\envs\edu_agent\python.exe -m uvicorn mock_services.app:mock_services_app --port 8001
-```
-
 `MockBillingClient` 提供异步 HTTP 客户端，可被未来退款执行节点调用。当前核心退款仍以本地 PostgreSQL 状态为准，Mock 服务不会替代第三方支付网关。
 
 启动项目专用 Milvus 栈：
@@ -371,34 +288,12 @@ $env:MILVUS_URI = "http://localhost:19531"
 $env:BGE_M3_MODEL_PATH = "D:\models\BAAI\bge-m3"
 ```
 
-本机已复制 BGE-M3 模型到项目本地目录，可直接使用：
-
-```powershell
-$env:BGE_M3_MODEL_PATH = "E:\ai\enterprise-customer-operations-platform\.worktrees\phase-2-domain-database\models\bge-m3"
-```
-
-真实模型验证脚本：
-
-```powershell
-$env:PYTHONNOUSERSITE = "1"
-$env:MILVUS_URI = "http://localhost:19531"
-& E:\anaconda3\envs\edu_agent\python.exe scripts/verify_bge_m3.py
-```
 
 本机已通过真实模型验证：BGE-M3 输出维度 1024，dense 向量 1024，稀疏向量 17 个词项权重，Milvus Dense + Sparse Hybrid Search 命中测试文档。
 
 ### Cross-Encoder 精排与检索评测
 
 `scripts/evaluate_retrieval.py` 对多个租户的评测用例离线计算 Dense、Hybrid 融合与 Cross-Encoder 精排三路指标的 Recall@K、Precision@K、MRR、NDCG。真实 BGE Reranker 模型已下载到 `models/bge-reranker-base`（通过本地代理），通过 `RERANKER_MODEL_PATH` 指定：
-
-```powershell
-$env:PYTHONNOUSERSITE = "1"
-$env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations"
-$env:MILVUS_URI = "http://localhost:19531"
-$env:BGE_M3_MODEL_PATH = "E:\ai\enterprise-customer-operations-platform\.worktrees\phase-2-domain-database\models\bge-m3"
-$env:RERANKER_MODEL_PATH = "E:\ai\enterprise-customer-operations-platform\.worktrees\phase-2-domain-database\models\bge-reranker-base"
-& E:\anaconda3\envs\edu_agent\python.exe scripts/evaluate_retrieval.py --tenant-ids <uuid1> <uuid2> ... --limit-cases 9
-```
 
 当前 5 个租户 45 个检索用例的实测结果：
 
@@ -484,7 +379,6 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 - `scripts/verify_database.py`：数据库结构和迁移头验收
 - `docs/architecture`：中文领域模型、数据库、事务、Guard、多智能体工作流和退款审批闭环文档
 - `docs/superpowers/specs`：模型网关、Guard、退款业务和客户咨询 API 合同
-- `docs/验证记录`：按实际 Python 环境和数据库容器生成的验收证据
 
 ## 约束
 
