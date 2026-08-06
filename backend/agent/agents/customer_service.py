@@ -6,6 +6,7 @@ from typing import Any
 from langgraph.graph import END, START, StateGraph
 
 from backend.agent.contracts import SpecialistResult
+from backend.agent.nodes.guards import domain_guard_node, input_security_guard_node
 from backend.agent.state import AgentState, ConversationMessage, KnowledgeEvidence
 from backend.llm.contracts import ResponseDraft
 from backend.llm.context import ContextBudget, truncate_text
@@ -148,18 +149,99 @@ def _response_safety_filter_node(state: AgentState) -> dict[str, Any]:
     return result
 
 
-def build_customer_service_graph(model_gateway: ModelGateway | None = None) -> StateGraph:
+_FRIENDLY_REFUSAL = (
+    "抱歉，我无法协助获取系统配置、内部提示、凭据或未经授权的数据。"
+    "我可以继续帮助您处理 CloudDesk 账户、账单、产品支持和工单相关问题。"
+)
+
+
+async def stream_customer_answer(
+    state: AgentState,
+    model_gateway: ModelGateway,
+    event_sink=None,
+) -> dict[str, Any]:
+    """Guards + grounded prompt + true token streaming + safety filter.
+
+    Used as the LangGraph customer-service node so orchestration stays in-graph.
+    Returns the state updates (final_response/status/next_action/response_review).
+    """
+    thread_id = str(state.request_id)
+    guard = input_security_guard_node(state)["guard_decision"]
+    if guard.status != "allow":
+        status = "blocked" if guard.status == "block" else "human_handoff"
+        message = _FRIENDLY_REFUSAL if status == "blocked" else "该操作需要人工安全审核。"
+        return {
+            "final_response": message,
+            "status": status,
+            "next_action": "finish" if status == "blocked" else "human_handoff",
+            "response_review": None,
+        }
+    domain = domain_guard_node(state)["domain_decision"]
+    if domain.status != "in_scope":
+        message = (
+            "请补充具体业务场景。"
+            if domain.status == "needs_clarification"
+            else "请求超出当前平台支持范围。"
+        )
+        return {
+            "final_response": message,
+            "status": "needs_clarification" if domain.status == "needs_clarification" else "out_of_scope",
+            "next_action": "ask_clarification" if domain.status == "needs_clarification" else "finish",
+            "response_review": None,
+        }
+
+    system_prompt, user_prompt = _prompt_messages(
+        state.conversation, knowledge_evidence=state.knowledge_evidence
+    )
+    accumulated: list[str] = []
+    try:
+        async for token in model_gateway.generate_stream(
+            system_prompt=system_prompt, user_prompt=user_prompt
+        ):
+            accumulated.append(token)
+            if event_sink is not None:
+                await event_sink("token", {"thread_id": thread_id, "text": token})
+    except ModelGatewayError:
+        return {
+            "final_response": _MODEL_ERROR_RESPONSE,
+            "status": "human_handoff",
+            "next_action": "human_handoff",
+            "response_review": None,
+        }
+    text = "".join(accumulated).strip() or "抱歉，我暂时无法生成回复，请稍后再试或联系人工客服。"
+    draft = ResponseDraft(answer=text, next_action="finish", confidence=0.8)
+    decision = ResponseSafetyFilter().evaluate(
+        draft, has_evidence=bool(state.knowledge_evidence)
+    )
+    if decision.status != "allow":
+        return {
+            "final_response": decision.response,
+            "status": "human_handoff",
+            "next_action": "human_handoff",
+            "response_review": decision,
+        }
+    return {
+        "final_response": decision.response,
+        "status": "completed",
+        "next_action": "finish",
+        "response_review": decision,
+    }
+
+
+def build_customer_service_graph(
+    model_gateway: ModelGateway | None = None,
+    event_sink=None,
+) -> StateGraph:
+    """Streaming customer-service subgraph (guards + stream + safety)."""
     gateway = model_gateway or _default_offline_gateway()
 
-    async def customer_service_model_node(state: AgentState) -> dict[str, Any]:
-        return await _customer_service_model_node(state, model_gateway=gateway)
+    async def customer_service_stream_node(state: AgentState) -> dict[str, Any]:
+        return await stream_customer_answer(state, gateway, event_sink)
 
     graph = StateGraph(AgentState)
-    graph.add_node("customer_service_model", customer_service_model_node)
-    graph.add_node("response_safety_filter", _response_safety_filter_node)
-    graph.add_edge(START, "customer_service_model")
-    graph.add_edge("customer_service_model", "response_safety_filter")
-    graph.add_edge("response_safety_filter", END)
+    graph.add_node("customer_service_stream", customer_service_stream_node)
+    graph.add_edge(START, "customer_service_stream")
+    graph.add_edge("customer_service_stream", END)
     return graph
 
 

@@ -6,6 +6,10 @@ from pydantic import BaseModel, ConfigDict
 
 from backend.agent.contracts import SupervisorDecision
 from backend.agent.state import AgentState
+from backend.core.query_classifier import (
+    CLASSIFIER_CONFIDENCE_THRESHOLD,
+    get_query_classifier,
+)
 from backend.llm.gateway import ModelGateway
 
 _ROUTE_SYSTEM_PROMPT = (
@@ -64,16 +68,24 @@ async def llm_route(gateway: ModelGateway, state: AgentState) -> str:
         return keyword_route(state)
 
 
+async def route_intent(gateway: ModelGateway | None, state: AgentState) -> str:
+    """Classifier-first routing: local BGE-M3 prototype similarity, then LLM,
+    then the deterministic keyword router (offline / no-gateway tests)."""
+    message = state.conversation[-1].content if state.conversation else ""
+    domain, confidence = get_query_classifier().classify(message)
+    if confidence >= CLASSIFIER_CONFIDENCE_THRESHOLD:
+        return domain
+    if gateway is not None:
+        return await llm_route(gateway, state)
+    return keyword_route(state)
+
+
 def make_supervisor_node(gateway: ModelGateway | None = None):
-    """Return a supervisor node. With a gateway it routes via the LLM,
-    falling back to the deterministic keyword router."""
+    """LangGraph supervisor node: the orchestrator's routing lives in-graph."""
 
     async def supervisor_node(state: AgentState) -> dict[str, object]:
-        if gateway is not None:
-            route = await llm_route(gateway, state)
-        else:
-            route = keyword_route(state)
-        decision = SupervisorDecision(route=route, reason="supervisor routing")
+        route = await route_intent(gateway, state)
+        decision = SupervisorDecision(route=route, reason="orchestrator routing")
         return {"supervisor_decision": decision, "next_action": decision.route}
 
     return supervisor_node

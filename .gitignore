@@ -1,5 +1,9 @@
 .worktrees/
 .superpowers/
+.workbuddy/
+docs/Claude继续开发交接说明.md
+docs/superpowers/plans/
+docs/验证记录/
 .venv/
 __pycache__/
 *.py[cod]

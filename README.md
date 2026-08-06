@@ -265,6 +265,35 @@ http://localhost:8000/
 
 每个用例的指标写入 `evaluation_results`，运行汇总写入 `evaluation_runs.metrics`；`GET /api/v1/evaluations` 可查看当前租户评测历史。当前评测聚焦检索链路，分类、决策、工具和回复评测仍属于后续阶段。
 
+### Agent 行为评估（QA Correctness + 安全 Guard）
+
+在检索评估之外，`backend/evaluation/` 还提供两层 Agent 行为评估（对齐 EduAgent 第 11 章方法论）：
+
+- **QA Correctness（`kind=correctness`）**：端到端问答评测——对每条专家标注用例执行"检索 → 生成 → LLM-as-Judge"，用 `ModelGateway` 的 DeepSeek 网关对比 Agent 回答与标准答案的语义一致性，输出 `correctness` 指标；Judge 调用失败时保守判 incorrect 并记录 `judge_error_count`。
+- **安全 Guard（`kind=guard`）**：对 `InputSecurityGuard` / `DomainGuard` 做确定性离线评测，输出 `status_accuracy`、误报率 `fpr`、漏报率 `fnr`、拦截成功率 `interception_rate` 与 `domain_accuracy`。
+
+种子数据集与离线质量检查：
+
+```powershell
+$env:PYTHONNOUSERSITE = "1"
+$env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations"
+# 离线检查 Guard 用例是否按标签命中规则（不依赖数据库）
+& E:\anaconda3\envs\edu_agent\python.exe scripts/verify_agent_evaluation.py --offline-only
+# 入库种子数据（agent-qa 30 条 + agent-guard 34 条）并跑两套评测
+& E:\anaconda3\envs\edu_agent\python.exe scripts/verify_agent_evaluation.py --tenant-id <租户UUID>
+```
+
+通过 HTTP API 触发（需要 `evaluation.run` 权限）：
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/v1/evaluations/run-agent `
+  -Headers @{ "X-Tenant-Id" = "<租户UUID>"; "X-Actor-Id" = "<用户UUID>"; "X-Actor-Type" = "user" } `
+  -ContentType "application/json" `
+  -Body '{"dataset_code":"agent-guard","kind":"guard","limit":20}'
+```
+
+当前 Guard 数据集用例与规则同源（按规则反推设计），漏报率检验需要引入对抗性变体数据，属于后续阶段。
+
 基于当前租户 active 文档生成一个简单检索评测集：
 
 ```powershell

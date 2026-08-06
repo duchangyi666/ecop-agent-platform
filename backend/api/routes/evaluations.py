@@ -5,18 +5,22 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.api.dependencies import (
     RequestContext,
+    get_app_model_gateway,
     get_knowledge_vector_store,
     get_session_factory_dependency,
     require_permission,
 )
 from backend.api.schemas import (
+    EvaluationRunAgentRequest,
     EvaluationRunItem,
     EvaluationRunListResponse,
     EvaluationRunRequest,
     EvaluationRunResponse,
 )
 from backend.database.unit_of_work import UnitOfWork
+from backend.evaluation.agent_runner import AgentEvaluationRunner
 from backend.evaluation.runner import EvaluationRunner
+from backend.llm.gateway import ModelGateway
 from backend.rag.config import get_rag_settings
 from backend.rag.reranker import create_reranker
 from backend.rag.retriever import ConsultationKnowledgeRetriever
@@ -71,6 +75,42 @@ async def run_retrieval_evaluation(
         dataset_code=payload.dataset_code,
         limit=payload.limit,
     )
+    return EvaluationRunResponse.from_result(
+        request_id=context.request_id,
+        result=result,
+    )
+
+
+@router.post("/run-agent", response_model=EvaluationRunResponse)
+async def run_agent_evaluation(
+    payload: EvaluationRunAgentRequest,
+    context: RequestContext = Depends(require_permission("evaluation.run")),
+    session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
+    vector_store: KnowledgeVectorStore | None = Depends(get_knowledge_vector_store),
+    gateway: ModelGateway = Depends(get_app_model_gateway),
+) -> EvaluationRunResponse:
+    retriever = ConsultationKnowledgeRetriever(
+        session_factory,
+        vector_store=vector_store,
+        reranker=create_reranker(get_rag_settings()),
+    )
+    runner = AgentEvaluationRunner(
+        session_factory,
+        retriever=retriever,
+        model_gateway=gateway,
+    )
+    if payload.kind == "guard":
+        result = await runner.run_guard_evaluation(
+            scope=context.scope,
+            dataset_code=payload.dataset_code,
+            limit=payload.limit,
+        )
+    else:
+        result = await runner.run_correctness_evaluation(
+            scope=context.scope,
+            dataset_code=payload.dataset_code,
+            limit=payload.limit,
+        )
     return EvaluationRunResponse.from_result(
         request_id=context.request_id,
         result=result,

@@ -307,6 +307,12 @@ class EvaluationRunRequest(BaseModel):
     limit: int = Field(default=5, ge=1, le=20)
 
 
+class EvaluationRunAgentRequest(BaseModel):
+    dataset_code: str = Field(min_length=1, max_length=120)
+    kind: Literal["correctness", "guard"] = "correctness"
+    limit: int = Field(default=5, ge=1, le=20)
+
+
 class EvaluationRunItem(BaseModel):
     run_id: UUID
     dataset_id: UUID

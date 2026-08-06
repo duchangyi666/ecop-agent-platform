@@ -10,24 +10,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from backend.agent.agents.supervisor import llm_route
+from backend.agent.agents.supervisor import route_intent
 from backend.agent.state import AgentState
-from backend.core.query_classifier import (
-    CLASSIFIER_CONFIDENCE_THRESHOLD,
-    get_query_classifier,
-)
 from backend.llm.gateway import ModelGateway
 
-
-async def route_intent(gateway: ModelGateway | None, state: AgentState) -> str:
-    """Pick the business domain: local embedding classifier first, LLM fallback."""
-    message = state.conversation[-1].content if state.conversation else ""
-    domain, confidence = get_query_classifier().classify(message)
-    if confidence >= CLASSIFIER_CONFIDENCE_THRESHOLD:
-        return domain
-    if gateway is not None:
-        return await llm_route(gateway, state)
-    return domain
+__all__ = ["Orchestrator", "get_orchestrator", "route_intent"]
 
 
 class Orchestrator:

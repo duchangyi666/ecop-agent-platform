@@ -172,89 +172,28 @@ class CustomerConsultationService:
                 },
             )
 
-        evidence: list[KnowledgeEvidence] = []
-        graph_state = request.state
-        user_message = next(
-            (
-                message.content
-                for message in reversed(request.state.conversation)
-                if message.role == "user"
-            ),
-            "",
+        # The LangGraph main graph is the orchestrator: guards -> retrieve ->
+        # supervisor(LLM/classifier routing) -> domain agents(real tools) ->
+        # customer-service streamed answer. run() only emits lifecycle events
+        # and persists afterwards.
+        graph = build_main_graph(
+            self.model_gateway, self.session_factory, self.event_sink
         )
-        if self.knowledge_retriever is not None:
-            evidence = await self.knowledge_retriever.retrieve(
-                scope=request.state.tenant_scope,
-                query=user_message,
-                limit=5,
-            )
-            if evidence:
-                graph_state = request.state.model_copy(
-                    update={"knowledge_evidence": evidence},
-                )
-        if self.event_sink is not None:
-            await self.event_sink(
-                "evidence",
-                {
-                    "thread_id": request.thread_id,
-                    "count": len(evidence),
-                    "results": [
-                        {
-                            "document_id": str(item.document_id),
-                            "title": item.title,
-                            "snippet": (item.content_snippet or "")[:200],
-                            "score": item.score,
-                            "source": item.source_uri,
-                        }
-                        for item in evidence
-                    ],
-                },
-            )
+        final_state = await graph.compile().ainvoke(request.state)
 
-        # Conversation -> business execution. The model decides whether this
-        # turn is a pure question or a real business request; the executor then
-        # performs it against PostgreSQL and the outcome is grounded into the
-        # answer and surfaced as an evidence card.
-        # Two-level multi-agent routing: an LLM supervisor picks the domain,
-        # then that domain's agent confirms the concrete action and executes it
-        # (or asks for clarification). Business domains own their own tools.
-        clarification: str | None = None
-        if self.session_factory is not None:
-            domain = await route_intent(self.model_gateway, request.state)
-            executor = ConversationActionExecutor(self.session_factory)
-            action_result, clarification = await executor.run_domain_action(
-                self.model_gateway,
-                request.state,
-                domain=domain,
-                user_message=user_message,
-                thread_id=request.thread_id,
-            )
-            if action_result is not None:
-                evidence = [*evidence, action_to_evidence(action_result)]
-                graph_state = request.state.model_copy(
-                    update={"knowledge_evidence": evidence}
-                )
-                if self.event_sink is not None:
-                    await self.event_sink(
-                        "action",
-                        {
-                            "thread_id": request.thread_id,
-                            "action": action_result.action,
-                            "summary": action_result.summary,
-                        },
-                    )
+        def _get(key: str, default=None):
+            if isinstance(final_state, dict):
+                return final_state.get(key, default)
+            return getattr(final_state, key, default)
 
-        if clarification is not None:
-            result = CustomerConsultationResult(
-                thread_id=request.thread_id,
-                status="needs_clarification",
-                next_action="ask_clarification",
-                final_response=clarification,
-                response_review=None,
-            )
-            await self._emit_tokens(request.thread_id, clarification)
-        else:
-            result = await self._stream_answer(request, graph_state)
+        evidence = _get("knowledge_evidence", []) or []
+        result = CustomerConsultationResult(
+            thread_id=request.thread_id,
+            status=_get("status", "completed"),
+            next_action=_get("next_action", "finish"),
+            final_response=_get("final_response"),
+            response_review=_get("response_review"),
+        )
         result = replace(result, knowledge_evidence_count=len(evidence))
         if self.event_sink is not None:
             await self.event_sink(
