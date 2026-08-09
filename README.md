@@ -1,387 +1,267 @@
-# 客户运营平台
+# CloudDesk · 企业客户运营平台
 
-这是一个完全独立的企业级智能客服与工单处理 Agent 平台。当前已完成领域模型、PostgreSQL 数据库、租户隔离、事务边界、Alembic 迁移，以及输入安全 Guard、业务范围 Guard、Supervisor + 五个专属 Agent 的 LangGraph 多智能体工作流。退款链路已具备数据库持久化申请、审批 Checkpoint 和审批恢复能力。
+> 企业级智能客服与工单处理 **Agent 平台** —— 基于 LangGraph 的多智能体编排，内置安全 Guard、RAG 向量知识库、数据库驱动的退款审批闭环，以及生产级三门户前端。
 
-## 当前技术基线
-- SQLAlchemy：2.0.36
-- Pydantic：2.11.4
-- LangGraph：1.0.9
-- PostgreSQL：项目专用 Docker 容器，映射端口 `54329`
-- pymilvus：2.4.9（RAG 向量存储；BGE-M3 使用可选 `sentence-transformers`）
-- Alembic 当前迁移头：`009_conversation_thread`
-- 数据库连接：`postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations`
+[![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](https://www.python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.117-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![LangGraph](https://img.shields.io/badge/LangGraph-1.0-1C3C3C?logo=langchain&logoColor=white)](https://www.langchain.com/langgraph)
+[![Next.js](https://img.shields.io/badge/Next.js-15-000000?logo=nextdotjs&logoColor=white)](https://nextjs.org)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org)
+[![Milvus](https://img.shields.io/badge/Milvus-2.4-00A1EA?logo=milvus&logoColor=white)](https://milvus.io)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://www.docker.com)
 
+CloudDesk 是面向企业客户的**智能客服 + 工单 + 退款审批**一体化平台：客户提出问题，多智能体工作流自动完成安全检查、意图路由、知识检索、业务工具执行（工单 / 退款预览 / 审批申请），并以流式方式返回有依据的回复；高风险操作（如退款）进入可追踪的审批闭环，全程留痕、可审计、可恢复。
 
-说明：
+---
 
-- `--reset` 会 TRUNCATE 全部业务表后重建数据；`--seed` 固定随机种子保证可复现。
-- 24 个注入场景（重复扣费、Prompt Injection、越权导出、审批过期、并发退款等）以独立会话消息方式写入，供端到端演示与评测使用。
-- 生成的数据与测试隔离：`tests/unit/database` 的 fixture 会在结束时 `drop_all` 数据库表，因此请先跑测试再生成演示数据，或生成后再跑 `alembic upgrade head` 重建表。
-- `scripts/verify_synthetic_data.py` 校验行数、同租户外键引用、跨租户隔离、唯一约束和领域状态值。
+## ✨ 功能特性
 
-## Docker Compose 与部署
+| 能力                     | 说明                                                         |
+| ------------------------ | ------------------------------------------------------------ |
+| 🧠 **多智能体客服工作流** | LangGraph 编排：安全 Guard → 知识检索 → Supervisor 路由 → 5 个专属 Agent（客服 / 计费 / 工单 / 审批 / 知识）→ 策略门禁 |
+| 🛡️ **安全 Guard 边界**    | Prompt Injection、凭据 / 卡号、超长输入直接拦截；越权 / 绕过审批转人工；拒绝时绝不调用业务工具 |
+| 📚 **RAG 向量知识库**     | Milvus 向量召回 + PostgreSQL 关键词检索 RRF 混合；可选 BGE-M3 稀疏向量与 Cross-Encoder 精排 |
+| 💰 **退款审批闭环**       | 提交本地退款申请（`POST /api/v1/refunds`）→ 数据库持久化 → 审批 Checkpoint → 审批恢复；幂等键按租户隔离，全程留痕 |
+| ⚡ **低延迟流式回复**     | SSE 实时推送进度事件 + 逐字流式生成；进程级连接复用、规则路由优先、关闭模型思考模式，首字仅约 1~2s |
+| 🖥️ **三门户前端**         | Next.js 15 + TypeScript：客户门户（提问 / 我的工单）、客服工作台（工单 / 审批 / 知识库）、管理控制台（Runtime / 评测 / 知识管理 / 会话活动） |
+| 🧪 **评测系统**           | 检索评测（Recall@K / MRR / NDCG）+ QA Correctness（LLM-as-Judge）+ 安全 Guard 离线评测 |
+| 📊 **可观测**             | Runtime Trace / Token 成本 / Agent 清单 API + Prometheus / Grafana 指标 |
+| 🧠 **长期记忆**           | 对话中提取稳定用户偏好（脱敏存储，拒绝低置信度 / 凭据内容）；响应中的 `memory_candidate_count` 只报告候选数量 |
+| 🔐 **认证边界**           | 本地 JWT 签发 + 开发 Header 降级；`AUTH_MODE=jwt-only` 生产模式强制 Bearer |
+| 🧩 **Mock 外部服务**      | Billing（`billing/refunds` 幂等退款预览 / 执行）、CRM、Monitoring、Notification 模拟企业外部系统 |
 
-项目根目录 `docker-compose.yml` 提供完整本地部署：
+---
 
-```powershell
-Copy-Item .env.example .env
-docker compose up -d --build
-```
+## 🧠 架构总览
 
-启动后：
-
-- 前端控制台：`http://localhost:3000/`
-- 后端 API：`http://localhost:8000/`
-- Mock 外部服务：`http://localhost:8001/`
-- Prometheus：`http://localhost:19090/`
-- Grafana：`http://localhost:13000/`
-- PostgreSQL：`localhost:54329`
-- Redis：`localhost:16380`
-- Milvus：`localhost:19541`
-
-首次启动需要执行数据库迁移：
-
-
-GitHub Actions 流水线见 `.github/workflows/ci.yml`，会启动 PostgreSQL/Redis/Milvus/etcd/MinIO，执行迁移、完整测试和迁移漂移检查。
-
-## Prometheus 与 Grafana
-
-`docker compose up -d --build` 会同时启动 Prometheus 和 Grafana：
-
-- Prometheus：`http://localhost:19090/`，抓取后端 `/metrics`；
-- Grafana：`http://localhost:13000/`，默认账号由 `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` 控制，未设置时为 `admin` / `admin`。
-
-`infra/prometheus/prometheus.yml` 定义后端抓取目标，`infra/grafana/provisioning/` 预置 Prometheus 数据源。当前 `/metrics` 提供 HTTP 请求计数和应用健康指标，业务级 Trace、成本、Agent 指标继续通过 Runtime API 查看。
-
-## Kubernetes 与运维
-
-`infra/kubernetes/` 提供 Namespace、ConfigMap、Secret 示例、后端/前端 Deployment、Service 和 Ingress。生产 Secret 应通过外部 Secret 管理注入，不应使用示例文件。数据库备份、恢复、密钥轮换和故障恢复流程见 [`docs/architecture/部署运维手册.md`](docs/architecture/部署运维手册.md)。
-
-## Worker 与 Scheduler
-
-项目使用 Redis 队列执行异步任务：
-
-- `backend/tasks/worker.py`：消费 `ecop:tasks`，当前支持 `memory.expire`；
-- `backend/tasks/scheduler.py`：定时入队 `memory.expire`，默认每 3600 秒；
-- `memory.expire`：软删除已超过 TTL 的长期记忆记录。
-
-Docker Compose 已包含 `backend-worker` 和 `backend-scheduler` 服务。本地单独启动：
-
-
-
-当前 Worker 只处理已实现的维护任务，后续可扩展知识重索引、评测执行和通知发送。
-
-## HTTP API（开发环境）
-
-启动独立 FastAPI 应用：
-
-
-当前已提供：
-
-- `GET /healthz`：应用存活检查；
-- `POST /api/v1/customer-consultations`：调用主图生成客户咨询安全回复；
-- `POST /api/v1/customer-consultations/stream`：以 SSE 推送客户咨询开始、证据检索和完成事件；
-- `POST /api/v1/conversations`：创建客户会话并保存首条消息；
-- `GET /api/v1/conversations`：按租户查看会话列表；
-- `GET /api/v1/conversations/{conversation_id}`：查看会话与消息；
-- `POST /api/v1/conversations/{conversation_id}/messages`：追加会话消息；
-- `POST /api/v1/auth/tokens`：为当前租户活动用户签发本地 JWT Bearer Token；
-- `GET /api/v1/evaluations`：查看当前租户评测运行；
-- `POST /api/v1/evaluations/run`：运行检索评测并返回 Recall@K、MRR、NDCG；
-- `GET /api/v1/runtime/traces`：查看当前租户 Runtime Trace；
-- `GET /api/v1/runtime/traces/{trace_id}`：查看 Trace 和 Span 详情；
-- `GET /api/v1/runtime/costs`：查看当前租户 Token 和成本汇总；
-- `GET /api/v1/runtime/agents`：查看 Agent 定义清单；
-- `POST /api/v1/tickets`：创建租户作用域工单；
-- `GET /api/v1/tickets`：按租户查看工单列表；
-- `GET /api/v1/tickets/{ticket_id}`：查看工单、消息、事件和审批关联；
-- `PATCH /api/v1/tickets/{ticket_id}`：更新工单状态、优先级或追加内部备注；
-- `GET /api/v1/approvals`：按租户查看审批列表；
-- `GET /api/v1/approvals/{approval_request_id}`：查看审批详情与动作轨迹；
-- `GET /api/v1/knowledge/search`：检索当前租户 active 知识文档；
-- `POST /api/v1/knowledge/documents`：摄取知识文档、分片并写入 Milvus 向量索引；
-- `GET /api/v1/knowledge/documents`：查看当前租户 active 文档；
-- `DELETE /api/v1/knowledge/documents/{document_id}`：软删除文档并清理 Milvus 分片；
-- `POST /api/v1/knowledge/reindex`：对当前租户 active 文档重建向量索引；
-- `POST /api/v1/refunds`：提交本地退款申请；
-- `POST /api/v1/approvals/{approval_request_id}`：批准或拒绝退款审批；
-- `GET /api/v1/workflows/{thread_id}`：按租户查询脱敏工作流状态。
-- `GET /metrics`：Prometheus 文本格式 HTTP 请求指标。
-
-业务请求需要携带开发环境 Header：`X-Tenant-Id`、`X-Actor-Id`、`X-Actor-Type`，可选 `X-Request-Id`。这些 Header 只用于当前本地开发和集成测试，不等同于生产 JWT/OAuth 认证。客户咨询需要 `customer.consult`，会话读写需要 `conversation.create` / `conversation.read` / `conversation.write`，工单需要 `ticket.create` / `ticket.read` / `ticket.update`，审批查看需要 `approval.read`，知识库需要 `knowledge.search` / `knowledge.ingest` / `knowledge.delete`，退款接口需要 `refund.request` / `refund.approve`，评测需要 `evaluation.read` / `evaluation.run`，Runtime 查看需要 `runtime.read`。接口详细合同见 [`docs/superpowers/specs/2026-08-02-退款业务HTTP API设计.md`](docs/superpowers/specs/2026-08-02-退款业务HTTP%20API设计.md) 和 [`docs/superpowers/specs/2026-08-02-客户咨询API与模型网关工厂设计.md`](docs/superpowers/specs/2026-08-02-客户咨询API与模型网关工厂设计.md)。
-
-## 本地 JWT 认证
-
-设置 `JWT_SECRET` 后可启用本地签名 Token；业务接口同时接受 `Authorization: Bearer <token>`，未传 Token 时仍允许开发 Header 降级。
-
-```powershell
-$env:JWT_SECRET = "<至少32字节的本地密钥>"
-$env:JWT_TOKEN_EXPIRES_MINUTES = "60"
-```
-
-获取本地开发 Token：
-
-```powershell
-Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/v1/auth/tokens `
-  -ContentType "application/json" `
-  -Body '{"tenant_id":"<租户UUID>","user_id":"<用户UUID>","actor_type":"user"}'
-```
-
-Token 只包含租户、用户、角色类型、签发时间和过期时间，不包含密钥或敏感数据；过期后返回 HTTP 401。这是本地 JWT 认证边界，不代表已接入真实 OAuth、SSO 或生产身份提供商。
-
-## Guard 与安全边界
-
-请求进入主图后按固定顺序经过 `input_security_guard` 和 `domain_guard`，再进入 `normalize_request`、Supervisor、专属 Agent 和策略门禁：
-
-- Prompt Injection、凭据/银行卡号、超长输入：返回 `blocked`，不重试、不调用业务工具；
-- 绕过审批、租户隔离或未授权工具：返回 `human_handoff`，转人工安全审核；
-- 真实生产资金、外部系统等越界请求：返回 `out_of_scope`；
-- 无法判断业务场景：返回 `needs_clarification`，下一动作是 `ask_clarification`；
-- 退款服务只有在安全状态为 `allow`、业务域为 `billing` 时才会读取 Payment 或执行 `billing.preview` / 退款申请；
-- 工单服务只有在安全状态为 `allow`、业务域为 `ticket` 时才会执行 `ticket.create` / `ticket.update`；
-- 知识检索服务只查询当前租户 `active` 文档；未配置 Milvus 时回退到 PostgreSQL 标题检索，配置后使用租户过滤的向量召回。
-
-## RAG 向量知识库
-
-项目新增可降级的 RAG 基础层：`POST /api/v1/knowledge/documents` 会把知识内容分片后写入 PostgreSQL `knowledge_chunks`，并同步到 Milvus 向量集合；`GET /api/v1/knowledge/search` 在配置 `MILVUS_URI` 时使用 Milvus 向量召回与 PostgreSQL 关键词检索的 RRF 混合结果，未配置时只使用 PostgreSQL 标题检索。
-
-客户咨询 API 已接入同一检索链路：模型生成前先按当前租户检索知识证据，证据摘要进入模型 Prompt，响应中的 `knowledge_evidence_count` 只报告命中数量，不返回知识原文。
-
-## SSE 进度事件
-
-`POST /api/v1/customer-consultations/stream` 使用 `text/event-stream` 返回事件流：
-
-- `started`：工作流开始；
-- `evidence`：知识证据检索完成，`count` 只报告数量；
-- `completed`：结构化生成和安全审查完成；
-- `done`：最终脱敏摘要。
-
-SSE 不推送模型 Token、思维链、系统 Prompt、Key 或知识原文；断流时取消当前工作流任务。
-
-## 生产级前端（Next.js）
-
-`frontend/` 是 Next.js + TypeScript + Tailwind CSS v4 生产级前端，提供三个门户：
-
-- **客户门户** `/portal`：提交问题（SSE 实时进度）、我的工单、处理记录
-- **客服工作台** `/workspace`：工单队列、工单处理、审批（批准/拒绝走 Checkpoint 恢复）、知识检索、咨询调试
-- **管理控制台** `/admin`：平台总览、Runtime Trace/成本/Agent、评测、知识库管理、会话活动
-
-启动（需先启动后端与数据库，见上文）：
-
-```powershell
-cd frontend
-npm install
-npm run dev
-```
-
-访问 `http://localhost:3000/`，首次进入选择开发环境身份（租户 + 用户），请求通过 `next.config.ts` 的 rewrites 代理到 `http://localhost:8000`。认证沿用开发请求头边界（`X-Tenant-Id` / `X-Actor-Id` / `X-Actor-Type`），生产环境可切换 JWT。
-
-```powershell
-# 生产构建
-cd frontend
-npm run build
-npm run start
-```
-
-旧静态控制台保留在 `frontend_legacy/`，仍由 FastAPI 在 `http://localhost:8000/` 提供，用于兼容验证；新前端独立运行于 3000 端口。
-
-## 本地前端控制台（旧版）
-
-FastAPI 会直接托管 `frontend_legacy/` 静态工作台，启动后端后访问：
+一条客户消息在主图中的执行链路：
 
 ```text
-http://localhost:8000/
+用户消息
+   │
+   ▼
+┌─────────────────────┐    ┌──────────────────────┐
+│  input_security_guard │──▶│     domain_guard      │
+│  (注入/凭据/超长拦截)   │    │   (业务范围识别)        │
+└─────────────────────┘    └──────────────────────┘
+                                    │ in_scope
+                                    ▼
+                          ┌──────────────────────┐
+                          │   normalize / retrieve │  ← RAG：Milvus + PG 混合检索
+                          └──────────────────────┘
+                                    │
+                                    ▼
+                          ┌──────────────────────┐
+                          │ Supervisor 意图路由    │  ← 规则优先，LLM 路由可选
+                          └──────────────────────┘
+                                    │
+          ┌──────────┬───────────────┼───────────────┬──────────┐
+          ▼          ▼               ▼               ▼          ▼
+   ┌──────────┐ ┌──────────┐  ┌────────────┐  ┌──────────┐ ┌──────────┐
+   │ 客服 Agent │ │ 计费 Agent │  │ 工单 Agent  │  │ 审批 Agent │ │ 知识 Agent │
+   └──────────┘ └──────────┘  └────────────┘  └──────────┘ └──────────┘
+          │                    │ 策略门禁 policy_gate（计费/退款必须过门禁）
+          ▼                    ▼
+   ┌──────────────────────────────────────────┐
+   │  结构化安全回复（ResponseSafetyFilter）    │  ← SSE 流式返回
+   └──────────────────────────────────────────┘
 ```
 
-工作台提供总览、SSE 客户咨询、会话、工单、审批、知识库、Runtime 和评测八个视图：填写租户/用户 UUID 获取 JWT Token 后，可完成会话创建与消息追加、工单创建与状态更新、审批查看与决策、知识检索/摄取/归档/重建索引、客户咨询 SSE 进度事件，以及 Runtime Trace、成本和 Agent 清单。它仍是静态托管的企业级运营界面，不含生产级 Next.js 应用。
+- **安全边界前置**：任何业务工具调用前必须通过 `input_security_guard`（输入安全 Guard）与 `domain_guard`（业务范围 Guard）；
+- **退款门禁**：计费 Agent 只有安全状态 `allow` 且业务域 `billing` 时才执行退款预览 / 申请，并写入审批 Checkpoint；
+- **租户隔离**：所有查询、写入、审计、运行时 Trace 均按 `TenantScope` 隔离；
+- **脱敏原则**：日志 / 审计 / Checkpoint 只保存摘要与哈希，不落原始 Key、Prompt 或知识原文。
 
-## 评测系统
+---
 
-`POST /api/v1/evaluations/run` 基于 `evaluation_datasets` 和 `evaluation_cases` 运行检索评测，对每个用例调用当前检索链路，并计算：
+## 🚀 快速开始
 
-- `Recall@K`
-- `Precision@K`
-- `MRR`
-- `NDCG@K`
-
-每个用例的指标写入 `evaluation_results`，运行汇总写入 `evaluation_runs.metrics`；`GET /api/v1/evaluations` 可查看当前租户评测历史。当前评测聚焦检索链路，分类、决策、工具和回复评测仍属于后续阶段。
-
-### Agent 行为评估（QA Correctness + 安全 Guard）
-
-在检索评估之外，`backend/evaluation/` 还提供两层 Agent 行为评估（对齐 EduAgent 第 11 章方法论）：
-
-- **QA Correctness（`kind=correctness`）**：端到端问答评测——对每条专家标注用例执行"检索 → 生成 → LLM-as-Judge"，用 `ModelGateway` 的 DeepSeek 网关对比 Agent 回答与标准答案的语义一致性，输出 `correctness` 指标；Judge 调用失败时保守判 incorrect 并记录 `judge_error_count`。
-- **安全 Guard（`kind=guard`）**：对 `InputSecurityGuard` / `DomainGuard` 做确定性离线评测，输出 `status_accuracy`、误报率 `fpr`、漏报率 `fnr`、拦截成功率 `interception_rate` 与 `domain_accuracy`。
-
-
-通过 HTTP API 触发（需要 `evaluation.run` 权限）：
+### 方式一：Docker Compose（推荐）
 
 ```powershell
-Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/v1/evaluations/run-agent `
-  -Headers @{ "X-Tenant-Id" = "<租户UUID>"; "X-Actor-Id" = "<用户UUID>"; "X-Actor-Type" = "user" } `
-  -ContentType "application/json" `
-  -Body '{"dataset_code":"agent-guard","kind":"guard","limit":20}'
+git clone https://github.com/duchangyi666/ecop-agent-platform.git
+cd ecop-agent-platform
+
+Copy-Item .env.example .env      # 按需填入 DEEPSEEK_API_KEY / JWT_SECRET
+docker compose up -d --build     # 见根目录 docker-compose.yml，含前后端/Worker/监控栈
 ```
 
-当前 Guard 数据集用例与规则同源（按规则反推设计），漏报率检验需要引入对抗性变体数据，属于后续阶段。
-
-
-## 长期记忆
-
-客户咨询完成后，`MemoryService` 会从对话中提取稳定的偏好候选，例如语言偏好、时区和用户偏好；`MemoryWritePolicy` 拒绝低置信度、瞬时状态、凭据和过短内容。候选记忆只保存脱敏摘要和哈希，不保存原始聊天内容、最终回复或系统 Prompt。
-
-客户咨询响应中的 `memory_candidate_count` 只报告本次写入的候选数量，不返回记忆正文。
-
-## 模型路由、Prompt Registry 与上下文预算
-
-`ModelRouter` 按任务解析模型路由，默认从环境变量读取：
+首次启动需执行数据库迁移（宿主机执行，`DATABASE_URL` 默认指向 `localhost:54329`）：
 
 ```powershell
-$env:MODEL_ROUTE_MODEL = "deepseek-v4-flash"
-$env:MODEL_ROUTE_PROVIDER = "deepseek"
+$env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations"
+python -m alembic upgrade head
 ```
 
-`PromptRegistry` 保存版本化 Prompt 模板，当前内置客服 Prompt；`ContextBudget` 在模型调用前对知识证据和系统 Prompt 做本地字符预算限制，防止无限拼接上下文。
+启动后访问：
 
-当前路由和预算主要作用于客户咨询链路；完整 Model Router 调用、Prompt 管理 API 和 DB 持久化 Prompt 版本仍属于后续阶段。
+| 服务                            | 地址                                                  |
+| ------------------------------- | ----------------------------------------------------- |
+| 前端控制台（Next.js 三门户）    | <http://localhost:3000/>                              |
+| 后端 API / 旧版静态控制台       | <http://localhost:8000/>                              |
+| Mock 外部服务（Billing/CRM 等） | <http://localhost:8001/>                              |
+| Prometheus / Grafana            | <http://localhost:19090/> · <http://localhost:13000/> |
+| PostgreSQL / Redis / Milvus     | `54329` · `16380` · `19541`                           |
 
-## Runtime 可观测 API
+> 完整部署（Kubernetes、备份恢复、密钥轮换）见 [`docs/architecture/部署运维手册.md`](docs/architecture/部署运维手册.md)。
 
-Runtime API 基于 PostgreSQL 中的 `runtime_traces`、`runtime_spans`、`tool_executions` 和 `agent_definitions` 返回当前租户可观测数据：
+### 方式二：本地开发
 
-- Trace 列表和详情；
-- Span 输入/输出摘要；
-- Token 和成本汇总；
-- Agent 定义清单。
-
-当前返回数据库已持久化的脱敏摘要，不包含原始 Prompt、知识原文或敏感业务数据。
-
-## Mock 外部服务
-
-`mock_services/` 提供独立的模拟企业外部系统，用于本地开发、退款/工单闭环演示和测试：
-
-- `POST /billing/refunds/preview`：退款预览；
-- `POST /billing/refunds`：退款执行，按 `idempotency_key` 幂等；
-- `GET /billing/refunds/{idempotency_key}`：退款状态；
-- `GET /crm/customers/{customer_id}`：客户资料；
-- `GET/POST /monitoring/incidents`：故障事件；
-- `POST/GET /notification/notifications`：通知队列。
-
-`MockBillingClient` 提供异步 HTTP 客户端，可被未来退款执行节点调用。当前核心退款仍以本地 PostgreSQL 状态为准，Mock 服务不会替代第三方支付网关。
-
-启动项目专用 Milvus 栈：
+**1. 启动基础设施**（PostgreSQL / Redis / Milvus）：
 
 ```powershell
-docker compose -f infra/compose/docker-compose.rag.yml up -d
-$env:MILVUS_URI = "http://localhost:19541"
+docker compose up -d postgres redis
+docker compose -f infra/compose/docker-compose.rag.yml up -d   # Milvus 栈（可选）
 ```
 
-当前本地验证也可以复用已运行的 Milvus 实例，例如：
-
-```powershell
-$env:MILVUS_URI = "http://localhost:19531"
-```
-
-默认 Embedding 使用确定性的离线向量，不下载模型、不访问外网。如需使用 BGE-M3，指定本地模型目录：
-
-```powershell
-$env:BGE_M3_MODEL_PATH = "D:\models\BAAI\bge-m3"
-```
-
-
-本机已通过真实模型验证：BGE-M3 输出维度 1024，dense 向量 1024，稀疏向量 17 个词项权重，Milvus Dense + Sparse Hybrid Search 命中测试文档。
-
-### Cross-Encoder 精排与检索评测
-
-`scripts/evaluate_retrieval.py` 对多个租户的评测用例离线计算 Dense、Hybrid 融合与 Cross-Encoder 精排三路指标的 Recall@K、Precision@K、MRR、NDCG。真实 BGE Reranker 模型已下载到 `models/bge-reranker-base`（通过本地代理），通过 `RERANKER_MODEL_PATH` 指定：
-
-当前 5 个租户 45 个检索用例的实测结果：
-
-| 指标 | Dense | Hybrid | Reranked |
-| --- | --- | --- | --- |
-| MRR | 0.8185 | 0.7926 | **0.8481** |
-| NDCG@10 | 0.8644 | 0.8456 | **0.8876** |
-
-Cross-Encoder 精排相对 RRF 融合 MRR +0.056、NDCG@10 +0.042，验证真实 BGE Reranker 已接入检索链路。
-
-开启 BGE-M3 稀疏向量召回（集合名升级为 `ecop_knowledge_chunks_v2`）：
-
-```powershell
-$env:SPARSE_VECTOR_ENABLED = "1"
-$env:MILVUS_COLLECTION = "ecop_knowledge_chunks_v2"
-```
-
-未配置 `BGE_M3_MODEL_PATH` 时，稀疏向量使用确定性本地哈希向量，不访问外网；配置后使用 FlagEmbedding BGE-M3 生成 sparse lexical weights，Milvus 使用 Dense + Sparse hybrid search。
-
-精排默认使用确定性 RRF 得分排序；如需启用 Cross-Encoder，指定本地模型目录：
-
-```powershell
-$env:RERANKER_MODEL_PATH = "D:\models\BAAI\bge-reranker-large"
-```
-
-本阶段不保存原始知识正文到审计、日志或运行轨迹；搜索响应只返回文档摘要、RRF 得分和最多 300 字的分片摘要。BGE-M3 稀疏向量已提供可选适配器，真实模型加载和评测对比仍属于后续验证。
-
-Guard 终止结果会写入同一租户的 `AuditLog`、`RuntimeTrace` 和 `WorkflowCheckpoint`。检查点和对外响应不保存或回显敏感原文。Guard 使用当前仓库已安装的确定性 Python/Pydantic 规则，不代表已经接入 LLM 安全分类器、Redis、第三方支付或正式 JWT/OAuth。
-
-## 模型网关与结构化客服回复
-
-客服子图已接入 provider-neutral 的 `ModelGateway` 契约：
-
-- `DeepSeekGateway` 使用项目实际安装的 `httpx==0.28.1` 调用 OpenAI-compatible Chat Completions；
-- `FakeModelGateway` 是默认离线实现，主图和自动测试不会读取环境变量、创建外网连接或依赖真实模型 Key；
-- 模型只能生成 Pydantic `ResponseDraft`，随后由 `ResponseSafetyFilter` 检查敏感信息、内部配置和缺少依据的业务承诺；
-- 模型异常、敏感输出和未经证据支持的业务结论会返回固定安全回复或转人工，不会触发退款、审批、工单或数据库工具；
-- `DEEPSEEK_API_KEY` 只允许从运行时环境变量读取，仓库、测试、日志和文档不保存 Key、完整 Prompt 或模型响应原文。
-
-应用启动时通过 `backend/llm/factory.py` 的 `create_model_gateway()` 创建网关并放入 FastAPI `app.state`：
-
-- 没有 `DEEPSEEK_API_KEY` 时默认创建 `FakeModelGateway`，本地启动和自动测试不访问外网；
-- 显式配置 `DEEPSEEK_API_KEY` 时才创建 `DeepSeekGateway`；
-- 客户咨询 API 从 `app.state` 读取同一个应用级 Gateway，不在请求内临时构造外部客户端；
-- 测试或本地演示可通过 `create_app(model_gateway=FakeModelGateway(...))` 显式注入离线网关。
-
-如需在本机显式接入模型，先设置环境变量；自动回归不执行真实 API 冒烟请求：
-
-```powershell
-$env:DEEPSEEK_API_KEY = "<仅保存在本机进程环境中的新 Key>"
-$env:DEEPSEEK_BASE_URL = "https://api.deepseek.com"
-$env:DEEPSEEK_MODEL = "deepseek-v4-flash"
-```
-
-当前阶段只完成模型网关、结构化回复、输出安全边界、RAG 向量检索基础、SSE 进度事件、本地 JWT 认证和本地静态控制台，尚未接入正式 OAuth/SSO、生产级 Next.js 前端或第三方支付。模型不能直接执行数据库写入和业务工具。
-
-为开发用户授予退款权限：
+**2. 启动后端 API**：
 
 ```powershell
 $env:PYTHONNOUSERSITE = "1"
 $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations"
-& E:\anaconda3\envs\edu_agent\python.exe scripts\seed_demo_identity.py `
-  --tenant-id <租户UUID> `
-  --user-id <用户UUID> `
-  --permissions refund.request refund.approve customer.consult conversation.create conversation.read conversation.write ticket.create ticket.read ticket.update approval.read knowledge.search knowledge.ingest knowledge.delete evaluation.read evaluation.run runtime.read
+# 可选：接入真实模型（不配置则使用离线 FakeModelGateway）
+$env:DEEPSEEK_API_KEY = "<你的 DeepSeek Key>"
+$env:DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+$env:DEEPSEEK_MODEL = "deepseek-v4-flash"
+
+python -m alembic upgrade head
+python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
 
-该脚本只允许声明的权限码，并且重复执行幂等；仅用于开发和测试，不替代生产认证、角色审批和密钥管理。
+> 若 8000 端口被占用，可改用 `--port 8080` 并将前端代理 `BACKEND_URL` 指向 8080。
 
-## 目录说明
+**3. 启动前端**：
 
-- `backend/domain`：支付、退款、工单和审批状态机
-- `backend/database/models`：身份、计费、工单、治理和评测模型
-- `backend/database/repositories`：租户作用域 Repository
-- `backend/database/unit_of_work.py`：事务边界与 Repository 组合
-- `backend/rag`：Embedding、文本分片、Milvus 向量存储和知识摄取服务
-- `backend/evaluation`：检索评测指标和评测 Runner
-- `backend/memory`：确定性记忆提取、写入策略和候选记忆服务
-- `backend/llm`：模型网关、结构化回复、安全过滤、模型路由、Prompt Registry 和上下文预算
-- `mock_services`：Billing/CRM/Monitoring/Notification 模拟外部服务
-- `frontend`：由 FastAPI 静态托管的本地演示控制台
-- `alembic/versions`：数据库迁移链
-- `scripts/verify_database.py`：数据库结构和迁移头验收
-- `docs/architecture`：中文领域模型、数据库、事务、Guard、多智能体工作流和退款审批闭环文档
-- `docs/superpowers/specs`：模型网关、Guard、退款业务和客户咨询 API 合同
+```powershell
+cd frontend
+npm install
+npm run dev          # 访问 http://localhost:3000/
+```
 
-## 约束
+> 旧版本地前端控制台（`frontend_legacy/`）仍由 FastAPI 静态托管，启动后端后访问 `http://localhost:8000/`，用于兼容验证。
 
-普通业务查询必须携带 `TenantScope`；金额使用 `Decimal` 和 `NUMERIC(18, 2)`；退款幂等键按租户隔离；敏感 payload 只保存脱敏摘要。计费 Agent 必须经过策略门禁，未知支付执行状态转人工处理。
+---
 
-退款链路的“完成”仅表示本地退款申请、`Refund`、审批动作、审计事件和运行 Checkpoint 已写入 PostgreSQL；当前不调用第三方支付网关，因此不代表第三方资金已经到账。详细时序见 [`docs/architecture/数据库驱动退款审批闭环.md`](docs/architecture/数据库驱动退款审批闭环.md)。
+## 🔑 演示账号
+
+一键创建 5 个演示账号（含租户、角色权限，幂等可重复执行）：
+
+```powershell
+python scripts/seed_demo_accounts.py
+```
+
+| 角色       | 邮箱                      | 密码              | 权限                                  |
+| ---------- | ------------------------- | ----------------- | ------------------------------------- |
+| 平台管理员 | `admin@clouddesk.demo`    | `Admin@123456`    | 全权限（含退款审批 / 评测 / Runtime） |
+| 客服专员   | `agent@clouddesk.demo`    | `Agent@123456`    | 咨询 / 会话 / 工单 / 知识库           |
+| 财务审核员 | `finance@clouddesk.demo`  | `Finance@123456`  | 退款申请 + 审批 / 审批查看            |
+| 演示客户   | `customer@clouddesk.demo` | `Customer@123456` | 咨询 / 会话 / 工单 / 知识检索         |
+| 访客       | `guest@clouddesk.demo`    | `Guest@123456`    | 最小只读权限                          |
+
+生成业务演示数据（工单 / 审批 / 知识文档 / 会话，落库到指定租户）：
+
+```powershell
+python scripts/generate_synthetic_data.py --scale small --seed 42 --tenant-prefix demo-ops
+python scripts/verify_synthetic_data.py   # 校验行数、外键、跨租户隔离、唯一约束
+```
+
+## 🤖 Worker 与异步任务
+
+Redis 队列执行异步维护任务（模块 `backend.tasks.worker` / `backend.tasks.scheduler`）：
+
+- `backend/tasks/worker.py`：消费 `ecop:tasks` 队列；
+- `backend/tasks/scheduler.py`：定时入队，默认每 3600s；
+- `memory.expire`：软删除超过 TTL 的长期记忆记录。
+
+## 🔐 认证与模型网关
+
+- **认证**：本地 JWT（`JWT_SECRET` 需 ≥32 字节，`JWT_TOKEN_EXPIRES_MINUTES` 控制有效期）；业务请求可带 `Authorization: Bearer <token>`，开发环境可降级到 `X-Tenant-Id` 等请求头；生产 `AUTH_MODE=jwt-only` 强制 Bearer 并禁用自助签发接口。
+- **模型网关**：应用启动时经 `create_model_gateway()` 创建网关并放入 `app.state`——未配置 `DEEPSEEK_API_KEY` 时使用离线 `FakeModelGateway`（本地启动与自动测试不访问外网）；`DEEPSEEK_API_KEY` 只允许从运行时环境变量读取，仓库、测试、日志与文档不保存 Key、完整 Prompt 或模型响应原文；自动回归不执行真实 API 冒烟请求。
+- **模型路由与 Prompt**：`MODEL_ROUTE_MODEL` / `MODEL_ROUTE_PROVIDER` 配置模型路由（默认 `deepseek-v4-flash`）；`PromptRegistry` 管理版本化 Prompt 模板；`ContextBudget` 对知识证据与系统 Prompt 做字符预算，防止上下文无限拼接。
+
+## 📚 RAG 向量知识库
+
+- `POST /api/v1/knowledge/documents` 摄取知识 → 文本分片写入 `knowledge_chunks` → 同步 Milvus 向量集合
+- `GET /api/v1/knowledge/search`：配置 `MILVUS_URI` 时使用向量召回 + PostgreSQL 关键词检索的 RRF 混合结果，未配置时降级为 PG 标题检索
+- 默认使用确定性离线 Embedding（不下载模型、不访问外网）；启用 BGE-M3 稀疏向量：`SPARSE_VECTOR_ENABLED=1`（集合名 `ecop_knowledge_chunks_v2`），指定本地模型 `models\bge-m3`（可用 `scripts/verify_bge_m3.py` 验证输出维度）；启用 Cross-Encoder 精排：`RERANKER_MODEL_PATH`
+- 客户咨询响应中的 `knowledge_evidence_count` 只报告命中数量，不返回知识原文
+
+## 📚 文档
+
+| 主题                 | 文档                                                         |
+| -------------------- | ------------------------------------------------------------ |
+| 领域模型与数据库设计 | [领域模型与数据库设计.md](docs/architecture/领域模型与数据库设计.md) |
+| 多智能体工作流       | [多智能体LangGraph工作流.md](docs/architecture/多智能体LangGraph工作流.md) |
+| 退款审批闭环         | [数据库驱动退款审批闭环.md](docs/architecture/数据库驱动退款审批闭环.md) |
+| 状态机与事务边界     | [状态机与事务边界.md](docs/architecture/状态机与事务边界.md) · [工单工具与租户事务边界.md](docs/architecture/工单工具与租户事务边界.md) |
+| RAG 与知识检索       | [知识检索工具与租户边界.md](docs/architecture/知识检索工具与租户边界.md) |
+| 部署与运维           | [部署运维手册.md](docs/architecture/部署运维手册.md)         |
+| API 设计合同         | [客户咨询 API](docs/superpowers/specs/2026-08-02-客户咨询API与模型网关工厂设计.md) · [退款业务 API](docs/superpowers/specs/2026-08-02-退款业务HTTP%20API设计.md) · [模型网关与安全设计](docs/superpowers/specs/2026-08-02-模型网关与结构化回复安全设计.md) |
+
+---
+
+## 🧪 测试与 CI
+
+GitHub Actions 流水线（`.github/workflows/ci.yml`）会自动启动 PostgreSQL / Redis / Milvus / etcd / MinIO，执行迁移、完整测试与迁移漂移检查。
+
+```powershell
+# 单元测试 + 集成测试（需要本地基础设施）
+pytest tests/unit tests/integration/database tests/integration/agent tests/integration/api tests/integration/vectorstore tests/integration/external_services -q
+
+# 数据库结构与迁移头验收
+python scripts/verify_database.py
+python -m alembic check
+```
+
+关键测试覆盖：Guard 拦截、业务域识别、退款策略、审批恢复、知识摄取与检索、SSE 流式、权限矩阵、API 合同（README 与代码一致性）。
+
+---
+
+## ⚙️ 技术栈
+
+| 层     | 技术                                                         |
+| ------ | ------------------------------------------------------------ |
+| 后端   | Python 3.11 · FastAPI · SQLAlchemy 2.0（asyncpg）· Pydantic 2 · LangGraph 1.0 · Alembic |
+| LLM    | DeepSeek（OpenAI-compatible）· provider-neutral `ModelGateway` 抽象 · 离线 `FakeModelGateway` 降级 |
+| 存储   | PostgreSQL · Redis（Worker 队列）· Milvus（向量检索，可降级） |
+| RAG    | 确定性离线 Embedding（可选 BGE-M3）· RRF 混合检索 · Cross-Encoder 精排（可选） |
+| 前端   | Next.js 15 · TypeScript · Tailwind CSS v4 · Zustand · TanStack Query |
+| 可观测 | Runtime Trace / Cost API · Prometheus · Grafana              |
+| 部署   | Docker Compose · Kubernetes（`infra/kubernetes/`）· GitHub Actions |
+
+---
+
+## 🔬 评测结果
+
+5 个租户 45 个检索用例的离线实测（`scripts/evaluate_retrieval.py`）：
+
+| 指标    | Dense  | Hybrid (RRF) | Reranked (BGE) |
+| ------- | ------ | ------------ | -------------- |
+| MRR     | 0.8185 | 0.7926       | **0.8481**     |
+| NDCG@10 | 0.8644 | 0.8456       | **0.8876**     |
+
+Cross-Encoder 精排相对 RRF 融合 **MRR +0.056、NDCG@10 +0.042**，验证真实 BGE Reranker 已接入检索链路。
+
+---
+
+## 🗂️ 项目结构
+
+```text
+backend/
+├── agent/                 # LangGraph 多智能体：Guard、Supervisor、领域 Agent、策略门禁
+├── api/routes/            # FastAPI 路由（咨询 / 会话 / 工单 / 审批 / 退款 / 知识库 / 评测 / Runtime / 认证）
+├── auth/                  # JWT 签发 / 校验、密码哈希、认证模式
+├── database/              # 模型、迁移、租户作用域 Repository、UnitOfWork 事务边界
+├── llm/                   # 模型网关（DeepSeek / Fake）、结构化回复、安全过滤、Prompt Registry、上下文预算
+├── rag/                   # Embedding、分片、Milvus 向量存储、混合检索、知识摄取
+├── memory/                # 确定性记忆提取与写入策略
+├── evaluation/            # 检索 / QA / Guard 评测
+└── observability/         # Prometheus 指标
+frontend/                  # Next.js 三门户（客户门户 / 客服工作台 / 管理控制台）
+frontend_legacy/           # FastAPI 静态托管的旧版控制台
+mock_services/             # Billing / CRM / Monitoring / Notification 模拟外部服务
+infra/                     # docker-compose、Kubernetes、Prometheus、Grafana
+scripts/                   # 演示数据生成、账号 seed、检索评测、数据库验收
+docs/                      # 架构文档与 API 设计合同
+tests/                     # 单元 / 集成测试（unit · integration/database · api · agent · vectorstore）
+```
