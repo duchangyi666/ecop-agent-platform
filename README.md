@@ -1,4 +1,4 @@
-# CloudDesk · 企业客户运营平台
+# 金融客户运营与服务 Agent 平台
 
 > 企业级智能客服与工单处理 **Agent 平台** —— 基于 LangGraph 的多智能体编排，内置安全 Guard、RAG 向量知识库、数据库驱动的退款审批闭环，以及生产级三门户前端。
 
@@ -10,7 +10,7 @@
 [![Milvus](https://img.shields.io/badge/Milvus-2.4-00A1EA?logo=milvus&logoColor=white)](https://milvus.io)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://www.docker.com)
 
-CloudDesk 是面向企业客户的**智能客服 + 工单 + 退款审批**一体化平台：客户提出问题，多智能体工作流自动完成安全检查、意图路由、知识检索、业务工具执行（工单 / 退款预览 / 审批申请），并以流式方式返回有依据的回复；高风险操作（如退款）进入可追踪的审批闭环，全程留痕、可审计、可恢复。
+面向企业客户的**智能客服 + 工单 + 退款审批**一体化平台：客户提出问题，多智能体工作流自动完成安全检查、意图路由、知识检索、业务工具执行（工单 / 退款预览 / 审批申请），并以流式方式返回有依据的回复；高风险操作（如退款）进入可追踪的审批闭环，全程留痕、可审计、可恢复。
 
 ---
 
