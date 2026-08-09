@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import AsyncExitStack, asynccontextmanager
 import logging
 from pathlib import Path
+import re
 from typing import Any
 from uuid import uuid4
 
@@ -22,6 +23,7 @@ from backend.api.routes.knowledge import router as knowledge_router
 from backend.api.routes.refunds import router as refunds_router
 from backend.api.routes.runtime import router as runtime_router
 from backend.api.routes.tickets import router as tickets_router
+from backend.auth.config import get_auth_settings
 from backend.domain.common import DomainError
 from backend.llm.factory import create_model_gateway
 from backend.llm.gateway import ModelGateway
@@ -35,6 +37,35 @@ FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend_legacy"
 
 def _request_id(request: Request) -> str:
     return request.headers.get("X-Request-Id") or f"request-{uuid4().hex}"
+
+
+_UUID_SEGMENT_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+
+
+def _normalise_path(path: str) -> str:
+    """Collapse UUID and numeric segments so unmatched paths cannot create
+    unbounded Prometheus label cardinality (e.g. 404 scanner traffic)."""
+    segments: list[str] = []
+    for segment in path.split("/"):
+        if _UUID_SEGMENT_RE.fullmatch(segment):
+            segments.append("{uuid}")
+        elif segment.isdigit():
+            segments.append("{int}")
+        else:
+            segments.append(segment)
+    return "/".join(segments)
+
+
+async def check_database_health() -> None:
+    """Raise if the primary database is unreachable (used by /healthz)."""
+    from sqlalchemy import text
+
+    from backend.database.session import get_async_engine
+
+    async with get_async_engine().connect() as connection:
+        await connection.execute(text("SELECT 1"))
 
 
 def _error_response(*, request: Request, status_code: int, code: str, message: str) -> JSONResponse:
@@ -70,6 +101,9 @@ def create_app(
     knowledge_vector_store: KnowledgeVectorStore | None | Any = _UNSET,
 ) -> FastAPI:
     app = FastAPI(title="Enterprise Customer Operations Platform", version="0.1.0", lifespan=lifespan)
+    # Fail fast on invalid auth configuration (e.g. AUTH_MODE=jwt-only without
+    # a strong JWT_SECRET) instead of silently degrading at request time.
+    get_auth_settings()
     app.state.model_gateway = model_gateway or create_model_gateway()
     app.state.metrics = create_metrics_state()
     if knowledge_vector_store is _UNSET:
@@ -79,11 +113,26 @@ def create_app(
     @app.middleware("http")
     async def observe_http_requests(request: Request, call_next):
         response = await call_next(request)
-        app.state.metrics["requests"][(request.method, request.url.path, response.status_code)] += 1
+        # Normalise the label to the route template (e.g. /api/v1/tickets/{ticket_id})
+        # instead of the raw path so dynamic UUIDs never create unbounded keys.
+        route = request.scope.get("route")
+        if route is not None and getattr(route, "path", None):
+            path = route.path
+        else:
+            path = _normalise_path(request.url.path)
+        app.state.metrics["requests"][(request.method, path, response.status_code)] += 1
         return response
 
     @app.get("/healthz", response_model=HealthResponse)
     async def healthz() -> HealthResponse:
+        try:
+            await check_database_health()
+        except Exception as exc:  # noqa: BLE001 - probe failures map to 503
+            logger.warning("health check failed: %s", exc)
+            raise HTTPException(
+                status_code=503,
+                detail={"code": "database_unavailable", "message": "database unavailable"},
+            ) from exc
         return HealthResponse(status="ok")
 
     @app.get("/metrics", include_in_schema=False)

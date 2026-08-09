@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 from collections.abc import Sequence
 from typing import Any
 
@@ -41,6 +43,35 @@ def _last_user_message(state: AgentState) -> str:
         if message.role == "user":
             return message.content
     return ""
+
+
+def _extract_reply_text(raw: str) -> str:
+    """Extract natural-language reply text from model output.
+
+    Models occasionally wrap the answer in JSON (``{"reply": ...}``) or a
+    markdown code fence even when asked for plain text; unwrap those so the
+    user never sees raw JSON in the chat UI.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return text
+    fence = re.match(r"^```(?:json)?\s*(.*?)\s*```$", text, flags=re.DOTALL)
+    if fence:
+        text = fence.group(1).strip()
+    if text.startswith("{"):
+        try:
+            parsed = json.loads(text)
+        except (ValueError, json.JSONDecodeError):
+            return raw
+        if isinstance(parsed, dict):
+            for key in ("reply", "answer", "content", "text", "message"):
+                value = parsed.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        if isinstance(parsed, str) and parsed.strip():
+            return parsed.strip()
+        return raw
+    return text
 
 
 def _prompt_messages(
@@ -208,7 +239,9 @@ async def stream_customer_answer(
             "next_action": "human_handoff",
             "response_review": None,
         }
-    text = "".join(accumulated).strip() or "抱歉，我暂时无法生成回复，请稍后再试或联系人工客服。"
+    text = _extract_reply_text("".join(accumulated).strip())
+    if not text:
+        text = "抱歉，我暂时无法生成回复，请稍后再试或联系人工客服。"
     draft = ResponseDraft(answer=text, next_action="finish", confidence=0.8)
     decision = ResponseSafetyFilter().evaluate(
         draft, has_evidence=bool(state.knowledge_evidence)

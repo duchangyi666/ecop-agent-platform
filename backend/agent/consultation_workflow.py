@@ -10,7 +10,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.agent.actions import ConversationActionExecutor, action_to_evidence
-from backend.agent.agents.customer_service import _MODEL_ERROR_RESPONSE, _prompt_messages
+from backend.agent.agents.customer_service import (
+    _MODEL_ERROR_RESPONSE,
+    _extract_reply_text,
+    _prompt_messages,
+)
 from backend.agent.graphs.main_graph import build_main_graph
 from backend.core.orchestrator import route_intent
 from backend.agent.nodes.guards import domain_guard_node, input_security_guard_node
@@ -163,6 +167,14 @@ class CustomerConsultationService:
         self,
         request: CustomerConsultationWorkflowRequest,
     ) -> CustomerConsultationResult:
+        # The current user message (the tail of the conversation) drives
+        # memory capture and conversation persistence below. It must never
+        # be empty for a validated request (message min_length=1).
+        user_message = next(
+            (m.content for m in reversed(request.state.conversation) if m.role == "user"),
+            "",
+        )
+
         if self.event_sink is not None:
             await self.event_sink(
                 "started",
@@ -377,7 +389,7 @@ class CustomerConsultationService:
                 final_response=_MODEL_ERROR_RESPONSE,
                 response_review=None,
             )
-        text = "".join(accumulated).strip()
+        text = _extract_reply_text("".join(accumulated).strip())
         if not text:
             text = "抱歉，我暂时无法生成回复，请稍后再试或联系人工客服。"
 

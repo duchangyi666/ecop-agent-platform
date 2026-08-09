@@ -24,6 +24,15 @@ class RecordingModelGateway:
             latency_ms=0,
         )
 
+    def generate_stream(self, *, system_prompt, user_prompt):
+        del user_prompt
+        self.system_prompt = system_prompt
+
+        async def _stream():
+            yield self.draft.answer
+
+        return _stream()
+
 
 def _state(message: str, *, evidence: list[KnowledgeEvidence]):
     return create_agent_state(

@@ -52,6 +52,31 @@ export interface AuthTokenResponse {
   expires_in: number;
 }
 
+export interface RegisterRequest {
+  email: string;
+  display_name: string;
+  password: string;
+  tenant_slug?: string;
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+  tenant_slug?: string;
+}
+
+export interface AuthSessionResponse {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  tenant_id: string;
+  tenant_slug: string;
+  user_id: string;
+  display_name: string;
+  email: string;
+  actor_type: "user" | "system";
+}
+
 /* ---------- conversations ---------- */
 
 export interface ConversationItem {

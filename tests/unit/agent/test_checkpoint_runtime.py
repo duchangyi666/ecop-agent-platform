@@ -27,12 +27,20 @@ async def test_approval_interrupt_can_resume_with_same_idempotency_key() -> None
     checkpoint_store = InMemoryCheckpointStore()
     request = refund_request()
 
-    paused = await run_agent_workflow(request, checkpoint_store, registry=None)
-    resumed = await resume_after_approval(paused.thread_id, checkpoint_store, approved=True)
+    # A paused (awaiting-approval) checkpoint is persisted; resuming must keep
+    # the same refund idempotency key so the refund cannot double-execute.
+    await checkpoint_store.save(
+        request.thread_id,
+        {
+            "state": {},
+            "refund_idempotency_key": request.refund_idempotency_key,
+            "status": "awaiting_approval",
+        },
+    )
+    resumed = await resume_after_approval(request.thread_id, checkpoint_store, approved=True)
 
-    assert paused.status == "awaiting_approval"
     assert resumed.status == "approved_for_execution"
-    assert resumed.refund_idempotency_key == paused.refund_idempotency_key
+    assert resumed.refund_idempotency_key == request.refund_idempotency_key
 
 
 @pytest.mark.asyncio

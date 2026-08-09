@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
@@ -18,6 +19,15 @@ from backend.agent.state import AgentState
 from backend.llm.gateway import ModelGateway
 
 EventSink = Any
+
+
+@lru_cache(maxsize=1)
+def _shared_vector_store():
+    """Reuse one vector store per process instead of reconnecting to Milvus on
+    every request (connect + collection check costs ~3s each time)."""
+    from backend.rag.vector_store import create_knowledge_vector_store
+
+    return create_knowledge_vector_store()
 
 
 def _last_user_message(state: AgentState) -> str:
@@ -42,12 +52,11 @@ def _make_retrieve_node(session_factory: async_sessionmaker, event_sink: EventSi
         from backend.rag.config import get_rag_settings
         from backend.rag.reranker import create_reranker
         from backend.rag.retriever import ConsultationKnowledgeRetriever
-        from backend.rag.vector_store import create_knowledge_vector_store
 
         try:
             retriever = ConsultationKnowledgeRetriever(
                 session_factory,
-                vector_store=create_knowledge_vector_store(),
+                vector_store=_shared_vector_store(),
                 reranker=create_reranker(get_rag_settings()),
             )
             evidence = await retriever.retrieve(

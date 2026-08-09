@@ -7,11 +7,28 @@ from backend.llm.contracts import ResponseDraft
 from backend.llm.fake import FakeModelGateway
 
 
-def test_health_check_returns_only_liveness_status() -> None:
+def test_health_check_returns_ok_when_database_healthy(monkeypatch) -> None:
+    async def _healthy() -> None:
+        return None
+
+    monkeypatch.setattr("backend.main.check_database_health", _healthy)
+
     response = TestClient(create_app()).get("/healthz")
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_health_check_reports_database_failure(monkeypatch) -> None:
+    async def _unhealthy() -> None:
+        raise RuntimeError("database is down")
+
+    monkeypatch.setattr("backend.main.check_database_health", _unhealthy)
+
+    response = TestClient(create_app()).get("/healthz")
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "database_unavailable"
 
 
 def test_create_app_defaults_to_fake_model_gateway(monkeypatch) -> None:

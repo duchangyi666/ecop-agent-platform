@@ -157,6 +157,9 @@ class DeepSeekGateway:
                 ],
                 "stream": True,
                 "temperature": 0,
+                # Disable thinking/reasoning mode: it consumes tokens and adds
+                # latency before the first answer token.
+                "thinking": {"type": "disabled"},
             }
             url = f"{self.settings.base_url.rstrip('/')}/chat/completions"
             async with self._client.stream(
@@ -217,6 +220,8 @@ class DeepSeekGateway:
             "response_format": {"type": "json_object"},
             "temperature": 0,
             "stream": False,
+            # Disable thinking/reasoning mode for the same latency reason.
+            "thinking": {"type": "disabled"},
         }
 
     def _parse_response(

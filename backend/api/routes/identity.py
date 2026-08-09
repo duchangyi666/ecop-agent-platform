@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -22,12 +23,23 @@ def _request_id(request: Request) -> str:
     return request.headers.get("X-Request-Id") or f"request-{uuid4().hex}"
 
 
+def _reject_in_production() -> None:
+    # The identity directory is a development bootstrap aid. In production
+    # (AUTH_MODE=jwt-only) it must not be reachable by unauthenticated callers.
+    if os.getenv("AUTH_MODE", "dev").strip().lower() == "jwt-only":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "not_found", "message": "not found"},
+        )
+
+
 @router.get("/tenants", response_model=TenantListResponse)
 async def list_tenants(
     request: Request,
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
     limit: int = Query(default=200, ge=1, le=500),
 ) -> TenantListResponse:
+    _reject_in_production()
     async with session_factory() as session:
         tenants = list(
             (
@@ -55,6 +67,7 @@ async def list_tenant_users(
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
     limit: int = Query(default=500, ge=1, le=1000),
 ) -> TenantUsersResponse:
+    _reject_in_production()
     async with session_factory() as session:
         tenant = await session.scalar(
             select(Tenant).where(
