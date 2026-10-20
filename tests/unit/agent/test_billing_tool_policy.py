@@ -49,13 +49,14 @@ def test_billing_agent_cannot_access_ticket_tool() -> None:
     assert registry.for_agent("billing").names() == ["billing.preview", "billing.execute"]
 
 
-async def test_main_graph_routes_billing_to_policy_gate() -> None:
+def test_main_graph_routes_billing_to_policy_gate() -> None:
     state = create_agent_state(
         scope=TenantScope(tenant_id=uuid4()),
         request_id=uuid4(),
         message="我要退款",
     )
 
-    result = await build_main_graph().compile().ainvoke(state)
+    result = build_main_graph().compile().invoke(state)
 
-    assert result["supervisor_decision"].route == "route_billing"
+    assert result["specialist_result"].agent_name == "billing"
+    assert result["next_action"] == "human_handoff"

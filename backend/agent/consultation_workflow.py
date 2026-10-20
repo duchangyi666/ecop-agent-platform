@@ -167,14 +167,6 @@ class CustomerConsultationService:
         self,
         request: CustomerConsultationWorkflowRequest,
     ) -> CustomerConsultationResult:
-        # The current user message (the tail of the conversation) drives
-        # memory capture and conversation persistence below. It must never
-        # be empty for a validated request (message min_length=1).
-        user_message = next(
-            (m.content for m in reversed(request.state.conversation) if m.role == "user"),
-            "",
-        )
-
         if self.event_sink is not None:
             await self.event_sink(
                 "started",
@@ -199,12 +191,18 @@ class CustomerConsultationService:
             return getattr(final_state, key, default)
 
         evidence = _get("knowledge_evidence", []) or []
+        user_message = next(
+            (message.content for message in reversed(request.state.conversation) if message.role == "user"),
+            "",
+        )
         result = CustomerConsultationResult(
             thread_id=request.thread_id,
             status=_get("status", "completed"),
             next_action=_get("next_action", "finish"),
             final_response=_get("final_response"),
             response_review=_get("response_review"),
+            model_provider=_usage_provider(_get("model_usage")),
+            model_error_code=_error_code(_get("model_error")),
         )
         result = replace(result, knowledge_evidence_count=len(evidence))
         if self.event_sink is not None:
@@ -389,7 +387,7 @@ class CustomerConsultationService:
                 final_response=_MODEL_ERROR_RESPONSE,
                 response_review=None,
             )
-        text = _extract_reply_text("".join(accumulated).strip())
+        text = _extract_reply_text("".join(accumulated))
         if not text:
             text = "抱歉，我暂时无法生成回复，请稍后再试或联系人工客服。"
 

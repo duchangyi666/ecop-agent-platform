@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 import json
 import re
-from collections.abc import Sequence
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
@@ -45,33 +45,75 @@ def _last_user_message(state: AgentState) -> str:
     return ""
 
 
-def _extract_reply_text(raw: str) -> str:
-    """Extract natural-language reply text from model output.
+def _extract_reply_text(value: Any) -> str:
+    """Unwrap common JSON/code-fence model responses before safety review."""
 
-    Models occasionally wrap the answer in JSON (``{"reply": ...}``) or a
-    markdown code fence even when asked for plain text; unwrap those so the
-    user never sees raw JSON in the chat UI.
-    """
-    text = (raw or "").strip()
-    if not text:
+    if isinstance(value, dict):
+        for key in ("answer", "response", "content", "text"):
+            if value.get(key):
+                return str(value[key]).strip()
+        return json.dumps(value, ensure_ascii=False)
+    text = str(value).strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json|text)?\s*|\s*```$", "", text, flags=re.IGNORECASE)
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
         return text
-    fence = re.match(r"^```(?:json)?\s*(.*?)\s*```$", text, flags=re.DOTALL)
-    if fence:
-        text = fence.group(1).strip()
-    if text.startswith("{"):
-        try:
-            parsed = json.loads(text)
-        except (ValueError, json.JSONDecodeError):
-            return raw
-        if isinstance(parsed, dict):
-            for key in ("reply", "answer", "content", "text", "message"):
-                value = parsed.get(key)
-                if isinstance(value, str) and value.strip():
-                    return value.strip()
-        if isinstance(parsed, str) and parsed.strip():
-            return parsed.strip()
-        return raw
-    return text
+    if isinstance(parsed, dict):
+        return _extract_reply_text(parsed)
+    return str(parsed).strip()
+
+
+def _status_for_next_action(next_action: str) -> str:
+    if next_action == "human_handoff":
+        return "human_handoff"
+    if next_action == "ask_clarification":
+        return "needs_clarification"
+    return "completed"
+
+
+def _customer_service_preflight(state: AgentState) -> tuple[dict[str, Any], bool]:
+    """Run guards for direct customer-service graph calls as well as main-graph calls."""
+
+    updates: dict[str, Any] = {}
+    guard = state.guard_decision
+    if guard is None:
+        guard = input_security_guard_node(state)["guard_decision"]
+        updates["guard_decision"] = guard
+    if guard.status != "allow":
+        status = "blocked" if guard.status == "block" else "human_handoff"
+        message = _FRIENDLY_REFUSAL if status == "blocked" else "该操作需要人工安全审核。"
+        updates.update(
+            {
+                "final_response": message,
+                "status": status,
+                "next_action": "finish" if status == "blocked" else "human_handoff",
+                "response_review": None,
+            }
+        )
+        return updates, True
+
+    domain = state.domain_decision
+    if domain is None:
+        domain = domain_guard_node(state)["domain_decision"]
+        updates["domain_decision"] = domain
+    if domain.status != "in_scope":
+        message = (
+            "请补充具体业务场景。"
+            if domain.status == "needs_clarification"
+            else "请求超出当前平台支持范围。"
+        )
+        updates.update(
+            {
+                "final_response": message,
+                "status": "needs_clarification" if domain.status == "needs_clarification" else "out_of_scope",
+                "next_action": "ask_clarification" if domain.status == "needs_clarification" else "finish",
+                "response_review": None,
+            }
+        )
+        return updates, True
+    return updates, False
 
 
 def _prompt_messages(
@@ -130,6 +172,7 @@ async def _customer_service_model_node(
             "model_error": exc.error,
             "model_call_count": next_call_count,
             "final_response": _MODEL_ERROR_RESPONSE,
+            "status": "human_handoff",
             "next_action": "human_handoff",
             "specialist_result": SpecialistResult(
                 specialist="customer_service",
@@ -146,6 +189,7 @@ async def _customer_service_model_node(
         "model_call_count": next_call_count,
         "total_input_tokens": state.total_input_tokens + (usage.input_tokens or 0),
         "total_output_tokens": state.total_output_tokens + (usage.output_tokens or 0),
+        "status": _status_for_next_action(draft.next_action),
         "next_action": draft.next_action,
         "specialist_result": SpecialistResult(
             specialist="customer_service",
@@ -169,6 +213,7 @@ def _response_safety_filter_node(state: AgentState) -> dict[str, Any]:
         "final_response": decision.response,
     }
     if decision.status != "allow":
+        result["status"] = "human_handoff"
         result["next_action"] = "human_handoff"
         result["specialist_result"] = SpecialistResult(
             specialist="customer_service",
@@ -177,6 +222,8 @@ def _response_safety_filter_node(state: AgentState) -> dict[str, Any]:
             status="human_handoff",
             metadata={"response_review_code": decision.code},
         )
+    else:
+        result["status"] = _status_for_next_action(state.next_action)
     return result
 
 
@@ -194,32 +241,12 @@ async def stream_customer_answer(
     """Guards + grounded prompt + true token streaming + safety filter.
 
     Used as the LangGraph customer-service node so orchestration stays in-graph.
-    Returns the state updates (final_response/status/next_action/response_review).
+    Returns the state updates consumed by the parent graph.
     """
     thread_id = str(state.request_id)
-    guard = input_security_guard_node(state)["guard_decision"]
-    if guard.status != "allow":
-        status = "blocked" if guard.status == "block" else "human_handoff"
-        message = _FRIENDLY_REFUSAL if status == "blocked" else "该操作需要人工安全审核。"
-        return {
-            "final_response": message,
-            "status": status,
-            "next_action": "finish" if status == "blocked" else "human_handoff",
-            "response_review": None,
-        }
-    domain = domain_guard_node(state)["domain_decision"]
-    if domain.status != "in_scope":
-        message = (
-            "请补充具体业务场景。"
-            if domain.status == "needs_clarification"
-            else "请求超出当前平台支持范围。"
-        )
-        return {
-            "final_response": message,
-            "status": "needs_clarification" if domain.status == "needs_clarification" else "out_of_scope",
-            "next_action": "ask_clarification" if domain.status == "needs_clarification" else "finish",
-            "response_review": None,
-        }
+    preflight, terminal = _customer_service_preflight(state)
+    if terminal:
+        return preflight
 
     system_prompt, user_prompt = _prompt_messages(
         state.conversation, knowledge_evidence=state.knowledge_evidence
@@ -232,32 +259,52 @@ async def stream_customer_answer(
             accumulated.append(token)
             if event_sink is not None:
                 await event_sink("token", {"thread_id": thread_id, "text": token})
-    except ModelGatewayError:
+    except ModelGatewayError as exc:
         return {
+            **preflight,
+            "model_error": exc.error,
+            "model_call_count": state.model_call_count + 1,
             "final_response": _MODEL_ERROR_RESPONSE,
             "status": "human_handoff",
             "next_action": "human_handoff",
             "response_review": None,
         }
-    text = _extract_reply_text("".join(accumulated).strip())
-    if not text:
-        text = "抱歉，我暂时无法生成回复，请稍后再试或联系人工客服。"
+    text = _extract_reply_text("".join(accumulated)) or "抱歉，我暂时无法生成回复，请稍后再试或联系人工客服。"
     draft = ResponseDraft(answer=text, next_action="finish", confidence=0.8)
     decision = ResponseSafetyFilter().evaluate(
         draft, has_evidence=bool(state.knowledge_evidence)
     )
     if decision.status != "allow":
         return {
+            **preflight,
+            "response_draft": draft,
             "final_response": decision.response,
             "status": "human_handoff",
             "next_action": "human_handoff",
             "response_review": decision,
+            "model_call_count": state.model_call_count + 1,
+            "specialist_result": SpecialistResult(
+                specialist="customer_service",
+                route="route_customer",
+                content=decision.response,
+                status="human_handoff",
+                metadata={"response_review_code": decision.code},
+            ),
         }
     return {
+        **preflight,
+        "response_draft": draft,
         "final_response": decision.response,
         "status": "completed",
         "next_action": "finish",
         "response_review": decision,
+        "model_call_count": state.model_call_count + 1,
+        "specialist_result": SpecialistResult(
+            specialist="customer_service",
+            route="route_customer",
+            content=decision.response,
+            metadata={"next_action": "finish"},
+        ),
     }
 
 
@@ -265,16 +312,29 @@ def build_customer_service_graph(
     model_gateway: ModelGateway | None = None,
     event_sink=None,
 ) -> StateGraph:
-    """Streaming customer-service subgraph (guards + stream + safety)."""
+    """Customer-service subgraph with a structured path and an optional streaming path."""
     gateway = model_gateway or _default_offline_gateway()
+
+    async def customer_service_structured_node(state: AgentState) -> dict[str, Any]:
+        preflight, terminal = _customer_service_preflight(state)
+        if terminal:
+            return preflight
+        return {**preflight, **await _customer_service_model_node(state, model_gateway=gateway)}
 
     async def customer_service_stream_node(state: AgentState) -> dict[str, Any]:
         return await stream_customer_answer(state, gateway, event_sink)
 
     graph = StateGraph(AgentState)
-    graph.add_node("customer_service_stream", customer_service_stream_node)
-    graph.add_edge(START, "customer_service_stream")
-    graph.add_edge("customer_service_stream", END)
+    if event_sink is None:
+        graph.add_node("customer_service_model", customer_service_structured_node)
+        graph.add_node("response_safety_filter", _response_safety_filter_node)
+        graph.add_edge(START, "customer_service_model")
+        graph.add_edge("customer_service_model", "response_safety_filter")
+        graph.add_edge("response_safety_filter", END)
+    else:
+        graph.add_node("customer_service_stream", customer_service_stream_node)
+        graph.add_edge(START, "customer_service_stream")
+        graph.add_edge("customer_service_stream", END)
     return graph
 
 

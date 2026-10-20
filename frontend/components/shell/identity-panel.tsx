@@ -2,70 +2,43 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { LogIn, UserPlus } from "lucide-react";
-import { api, ApiError } from "@/lib/api";
-import type { AuthSessionResponse, LoginRequest, RegisterRequest } from "@/lib/types";
+import { useQuery } from "@tanstack/react-query";
+import { Building2, ChevronRight, Loader2, User } from "lucide-react";
+import { api } from "@/lib/api";
+import type { TenantListResponse, TenantUsersResponse } from "@/lib/types";
 import { useAuthStore } from "@/lib/auth-store";
-import { Button } from "@/components/ui/button";
-import { Field, Input } from "@/components/ui/form";
+import { ErrorState, InlineLoader } from "@/components/ui/states";
 import { cn } from "@/lib/cn";
 
-type Mode = "login" | "register";
-
-/** Login / register gate. On success stores the JWT session and enters the shell. */
+/** Inline tenant + user picker; stores the dev-boundary identity. */
 export function IdentityPanel() {
   const router = useRouter();
   const setIdentity = useAuthStore((state) => state.setIdentity);
-  const [mode, setMode] = useState<Mode>("login");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [tenantSlug, setTenantSlug] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [selectedTenant, setSelectedTenant] = useState<string | null>(null);
 
-  const signInWithSession = (session: AuthSessionResponse) => {
+  const tenantsQuery = useQuery({
+    queryKey: ["identity", "tenants"],
+    queryFn: () => api.get<TenantListResponse>("/api/v1/identity/tenants", { limit: 200 }),
+  });
+
+  const usersQuery = useQuery({
+    queryKey: ["identity", "users", selectedTenant],
+    queryFn: () =>
+      api.get<TenantUsersResponse>(`/api/v1/identity/tenants/${selectedTenant}/users`, {
+        limit: 1000,
+      }),
+    enabled: Boolean(selectedTenant),
+  });
+
+  const selectUser = (tenant: { id: string; slug: string }, userId: string, userName: string) => {
     setIdentity({
-      tenantId: session.tenant_id,
-      tenantSlug: session.tenant_slug,
-      userId: session.user_id,
-      userName: session.display_name,
-      actorType: session.actor_type,
-      accessToken: session.access_token,
+      tenantId: tenant.id,
+      tenantSlug: tenant.slug,
+      userId,
+      userName,
+      actorType: "user",
     });
     router.push("/chat");
-  };
-
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setError(null);
-    setSubmitting(true);
-    try {
-      if (mode === "login") {
-        const body: LoginRequest = { email, password };
-        if (tenantSlug.trim()) body.tenant_slug = tenantSlug.trim().toLowerCase();
-        const session = await api.post<AuthSessionResponse>("/api/v1/auth/login", body);
-        signInWithSession(session);
-      } else {
-        const body: RegisterRequest = {
-          email,
-          display_name: displayName.trim(),
-          password,
-        };
-        if (tenantSlug.trim()) body.tenant_slug = tenantSlug.trim().toLowerCase();
-        const session = await api.post<AuthSessionResponse>("/api/v1/auth/register", body);
-        signInWithSession(session);
-      }
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "请求失败，请稍后重试");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const switchMode = (next: Mode) => {
-    setMode(next);
-    setError(null);
   };
 
   return (
@@ -76,92 +49,92 @@ export function IdentityPanel() {
         </span>
         <div>
           <h1 className="text-lg font-semibold">CloudDesk 企业客户运营平台</h1>
-          <p className="text-xs text-muted-foreground">登录或注册后进入对应工作台</p>
+          <p className="text-xs text-muted-foreground">选择开发环境身份以进入对应工作台</p>
         </div>
       </div>
 
       <div className="w-full max-w-md rounded-lg border border-border bg-card shadow-sm">
-        <div className="grid grid-cols-2 border-b border-border">
-          {(["login", "register"] as const).map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => switchMode(tab)}
-              className={cn(
-                "flex items-center justify-center gap-1.5 py-3 text-sm font-medium transition-colors",
-                mode === tab
-                  ? "border-b-2 border-accent text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {tab === "login" ? (
-                <LogIn className="h-3.5 w-3.5" />
-              ) : (
-                <UserPlus className="h-3.5 w-3.5" />
-              )}
-              {tab === "login" ? "登录" : "注册"}
-            </button>
-          ))}
-        </div>
-
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4 p-5">
-          {mode === "register" && (
-            <Field label="显示名称">
-              <Input
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="例如：张小明"
-                maxLength={200}
-                required
-              />
-            </Field>
-          )}
-          <Field label="邮箱">
-            <Input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
-              maxLength={255}
-              autoComplete="email"
-              required
-            />
-          </Field>
-          <Field label="密码">
-            <Input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder={mode === "register" ? "至少 8 位" : "请输入密码"}
-              minLength={mode === "register" ? 8 : 1}
-              maxLength={128}
-              autoComplete={mode === "register" ? "new-password" : "current-password"}
-              required
-            />
-          </Field>
-          <Field label="租户标识（可选）">
-            <Input
-              value={tenantSlug}
-              onChange={(e) => setTenantSlug(e.target.value)}
-              placeholder={mode === "login" ? "不填则匹配第一个匹配的租户" : "留空自动创建（按邮箱前缀）"}
-              maxLength={63}
-            />
-          </Field>
-
-          {error && (
-            <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
-              {error}
-            </p>
-          )}
-
-          <Button type="submit" loading={submitting} size="lg" className="mt-1">
-            {mode === "login" ? "登录" : "注册并进入"}
-          </Button>
-        </form>
+        {tenantsQuery.isLoading && <InlineLoader label="正在加载租户" />}
+        {tenantsQuery.isError && (
+          <div className="p-4">
+            <ErrorState error={tenantsQuery.error} onRetry={() => tenantsQuery.refetch()} />
+          </div>
+        )}
+        {tenantsQuery.data && (
+          <ul className="max-h-96 divide-y divide-border overflow-auto">
+            {tenantsQuery.data.tenants.map((tenant) => {
+              const expanded = selectedTenant === tenant.id;
+              return (
+                <li key={tenant.id}>
+                  <button
+                    onClick={() => setSelectedTenant(expanded ? null : tenant.id)}
+                    className="flex w-full items-center gap-2.5 px-4 py-3 text-left text-sm hover:bg-muted/50"
+                  >
+                    <Building2 className="h-4 w-4 text-muted-foreground" />
+                    <span className="font-medium">{tenant.slug}</span>
+                    <span className="flex-1 truncate text-xs text-muted-foreground">
+                      {tenant.name}
+                    </span>
+                    <ChevronRight
+                      className={cn(
+                        "h-4 w-4 text-muted-foreground transition-transform",
+                        expanded && "rotate-90",
+                      )}
+                    />
+                  </button>
+                  {expanded && (
+                    <div className="border-t border-border bg-muted/30">
+                      {usersQuery.isLoading && (
+                        <div className="flex items-center gap-2 px-6 py-3 text-xs text-muted-foreground">
+                          <Loader2 className="h-3 w-3 animate-spin" /> 正在加载用户
+                        </div>
+                      )}
+                      {usersQuery.isError && (
+                        <div className="px-6 py-3">
+                          <ErrorState error={usersQuery.error} />
+                        </div>
+                      )}
+                      <ul className="divide-y divide-border/60">
+                        {usersQuery.data?.users.map((user) => {
+                          const isAdmin = (user.roles ?? []).some((role) =>
+                            ["support_manager", "finance_reviewer", "tenant_admin"].includes(role),
+                          );
+                          return (
+                            <li key={user.id}>
+                              <button
+                                onClick={() =>
+                                  selectUser(tenant, user.id, user.display_name || user.email)
+                                }
+                                className="flex w-full items-center gap-2.5 px-6 py-2.5 text-left text-sm hover:bg-muted"
+                              >
+                                <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                <span>{user.display_name}</span>
+                                {isAdmin && (
+                                  <span className="rounded-full border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-accent">
+                                    管理员
+                                  </span>
+                                )}
+                                <span className="ml-auto truncate text-xs text-muted-foreground">
+                                  {user.email}
+                                </span>
+                              </button>
+                            </li>
+                          );
+                        })}
+                        {usersQuery.data?.users.length === 0 && (
+                          <li className="px-6 py-3 text-xs text-muted-foreground">该租户暂无用户</li>
+                        )}
+                      </ul>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
-
       <p className="max-w-md text-center text-xs text-muted-foreground">
-        登录后使用 JWT Bearer 认证；本地开发环境也可使用请求头边界（X-Tenant-Id / X-Actor-Id / X-Actor-Type）。
+        开发环境身份沿用请求头边界（X-Tenant-Id / X-Actor-Id / X-Actor-Type），生产环境将使用 JWT / OAuth。
       </p>
     </div>
   );

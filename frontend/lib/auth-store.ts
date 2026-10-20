@@ -9,8 +9,6 @@ export interface Identity {
   userId: string;
   userName: string;
   actorType: string;
-  /** Signed JWT from login/register; when present it takes precedence over the dev headers. */
-  accessToken?: string;
 }
 
 interface AuthState {
@@ -58,21 +56,13 @@ export const useAuthStore = create<AuthState>()(
   ),
 );
 
-/**
- * Request headers for API calls. A signed Bearer token (from login/register)
- * takes precedence; the X-* dev-boundary headers are the fallback for local
- * development without a JWT.
- */
+/** Dev-boundary auth headers. Production uses JWT Bearer. */
 export function authHeaders(): Record<string, string> {
   const { identity } = useAuthStore.getState();
   if (!identity) return {};
-  const headers: Record<string, string> = {};
-  if (identity.accessToken) {
-    headers["Authorization"] = `Bearer ${identity.accessToken}`;
-  } else {
-    headers["X-Tenant-Id"] = identity.tenantId;
-    headers["X-Actor-Id"] = identity.userId;
-    headers["X-Actor-Type"] = identity.actorType;
-  }
-  return headers;
+  return {
+    "X-Tenant-Id": identity.tenantId,
+    "X-Actor-Id": identity.userId,
+    "X-Actor-Type": identity.actorType,
+  };
 }

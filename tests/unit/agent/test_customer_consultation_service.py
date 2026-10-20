@@ -45,6 +45,7 @@ async def test_customer_consultation_returns_safe_response_and_review() -> None:
     assert result.final_response.startswith("您好")
     assert result.response_review is not None
     assert result.response_review.status == "allow"
+    assert result.model_provider == "fake"
 
 
 @pytest.mark.asyncio
@@ -115,6 +116,7 @@ async def test_customer_consultation_converts_model_error_to_safe_handoff() -> N
     assert result.status == "human_handoff"
     assert result.next_action == "human_handoff"
     assert result.final_response == "当前智能回复服务暂时不可用，将为您转人工处理。"
+    assert result.model_error_code == "model_timeout"
     assert "模型服务响应超时" not in result.final_response
 
 

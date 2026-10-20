@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-import os
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
 from backend.agent.contracts import SupervisorDecision
 from backend.agent.state import AgentState
+from backend.core.query_classifier import (
+    CLASSIFIER_CONFIDENCE_THRESHOLD,
+    get_query_classifier,
+)
 from backend.llm.gateway import ModelGateway
-
-# L0 rule pre-filter: trivial chit-chat short-circuits to customer service
-# without spending an LLM routing call.
-_TRIVIAL = ("你好", "您好", "嗨", "hello", "hi", "谢谢", "感谢", "你是谁", "你能做什么", "在吗")
 
 _ROUTE_SYSTEM_PROMPT = (
     "你是 CloudDesk 客服的路由主管。结合对话历史判断当前应交给哪个专家，只输出 JSON。"
@@ -70,22 +69,13 @@ async def llm_route(gateway: ModelGateway, state: AgentState) -> str:
 
 
 async def route_intent(gateway: ModelGateway | None, state: AgentState) -> str:
-    """Two-level supervisor routing (enterprise cascade):
-
-    L0 rule pre-filter: trivial chit-chat goes straight to customer service.
-    L1 LLM + Pydantic structured output (RouteDecision) as the primary router.
-    Offline / no-gateway (tests) fall back to the deterministic keyword router.
-    """
+    """Classifier-first routing: local BGE-M3 prototype similarity, then LLM,
+    then the deterministic keyword router (offline / no-gateway tests)."""
     message = state.conversation[-1].content if state.conversation else ""
-    if len(message) <= 12 and any(t in message for t in _TRIVIAL):
-        return "route_customer"
-    # LLM routing is opt-in (SUPERVISOR_LLM_ROUTING=1): it adds one model call
-    # (~3s) before the first token. The deterministic keyword router covers the
-    # business intents, so the default is rule-based for a snappy reply.
-    if gateway is not None and os.getenv("SUPERVISOR_LLM_ROUTING", "0") == "1":
-        keyword = keyword_route(state)
-        if keyword in ("route_billing", "route_ticket", "route_approval"):
-            return keyword
+    domain, confidence = get_query_classifier().classify(message)
+    if confidence >= CLASSIFIER_CONFIDENCE_THRESHOLD:
+        return domain
+    if gateway is not None:
         return await llm_route(gateway, state)
     return keyword_route(state)
 

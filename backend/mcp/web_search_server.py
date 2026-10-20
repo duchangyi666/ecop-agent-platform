@@ -9,7 +9,32 @@ from __future__ import annotations
 import asyncio
 import os
 
-from mcp.server.fastmcp import FastMCP
+try:
+    from mcp.server.fastmcp import FastMCP
+except ModuleNotFoundError:  # pragma: no cover - exercised in minimal installs
+    class _FallbackTool:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+    class FastMCP:  # type: ignore[no-redef]
+        """Small inspection-only fallback when the optional MCP package is absent."""
+
+        def __init__(self, *args, **kwargs) -> None:
+            self._tools: list[_FallbackTool] = []
+            self._tool_manager = self
+
+        def tool(self):
+            def decorator(function):
+                self._tools.append(_FallbackTool(function.__name__))
+                return function
+
+            return decorator
+
+        def list_tools(self) -> list[_FallbackTool]:
+            return list(self._tools)
+
+        def streamable_http_app(self):
+            raise RuntimeError("install the optional 'mcp' dependency to mount MCP HTTP apps")
 
 mcp = FastMCP(
     name="CloudDesk-WebSearch",

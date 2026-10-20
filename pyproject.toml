@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "enterprise-customer-operations-platform"
 version = "0.1.0"
 description = "Domain and database foundation for enterprise customer operations platform"
-requires-python = ">=3.11,<3.12"
+requires-python = "==3.11.15"
 dependencies = [
   "SQLAlchemy==2.0.36",
   "asyncpg==0.30.0",
@@ -36,6 +36,8 @@ include = ["backend*", "mock_services*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+testpaths = ["tests"]
+norecursedirs = [".git", ".pytest_cache", "node_modules", "tmp", "output", "worktrees", "_docx_handoff_qa"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 

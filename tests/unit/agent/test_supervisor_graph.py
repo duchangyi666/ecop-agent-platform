@@ -24,11 +24,10 @@ def state_with_route(route: str) -> AgentState:
     return state
 
 
-@pytest.mark.asyncio
-async def test_supervisor_routes_refund_request_to_billing_agent() -> None:
+def test_supervisor_routes_refund_request_to_billing_agent() -> None:
     graph = build_main_graph().compile()
 
-    result = await graph.ainvoke(new_state("我要申请退款"))
+    result = graph.invoke(new_state("我要申请退款"))
 
     assert result["supervisor_decision"].route == "route_billing"
 
@@ -39,17 +38,19 @@ def test_supervisor_cannot_route_to_unregistered_agent() -> None:
 
 
 @pytest.mark.asyncio
-async def test_supervisor_routes_each_intent_to_its_domain() -> None:
+async def test_main_graph_executes_each_specialist_route() -> None:
     graph = build_main_graph().compile()
 
-    # Offline (no gateway) the supervisor falls back to the keyword router.
+    # Consultation-style questions ("怎么查", "政策") are answered by the
+    # customer-service agent, which grounds replies in RAG evidence; the
+    # knowledge agent is a placeholder route kept for direct retrieval flows.
     cases = {
-        "客户咨询": "route_customer",
-        "我要提交工单": "route_ticket",
-        "查看审批状态": "route_approval",
-        "我要申请退款": "route_billing",
+        "客户咨询": "customer_service",
+        "知识库政策怎么查": "customer_service",
+        "我要提交工单": "ticket",
+        "查看审批状态": "approval",
     }
 
-    for message, route in cases.items():
+    for message, specialist in cases.items():
         result = await graph.ainvoke(new_state(message))
-        assert result["supervisor_decision"].route == route
+        assert result["specialist_result"].agent_name == specialist

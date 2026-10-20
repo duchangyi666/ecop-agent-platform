@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from typing import Annotated
 from uuid import UUID, uuid4
@@ -38,17 +37,6 @@ def _invalid_token() -> HTTPException:
     )
 
 
-def _missing_token() -> HTTPException:
-    return HTTPException(
-        status_code=401,
-        detail={"code": "missing_token", "message": "authorization required"},
-    )
-
-
-def _auth_mode() -> str:
-    return os.getenv("AUTH_MODE", "dev").strip().lower()
-
-
 def _parse_uuid(value: str | None, field_name: str) -> UUID:
     if not value:
         raise _invalid_context(f"{field_name} is required")
@@ -82,10 +70,6 @@ def get_request_context(
             ),
             request_id=x_request_id or f"request-{uuid4().hex}",
         )
-    # Production mode: bearer token is mandatory, the X-* development headers
-    # must never be trusted as an identity source outside local development.
-    if _auth_mode() == "jwt-only":
-        raise _missing_token()
     if not x_actor_type or not x_actor_type.strip():
         raise _invalid_context("X-Actor-Type is required")
     return RequestContext(
