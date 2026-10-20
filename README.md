@@ -93,15 +93,6 @@ $env:DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_cus
 python -m alembic upgrade head
 ```
 
-启动后访问：
-
-| 服务                            | 地址                                                  |
-| ------------------------------- | ----------------------------------------------------- |
-| 前端控制台（Next.js 三门户）    | <http://localhost:3000/>                              |
-| 后端 API / 旧版静态控制台       | <http://localhost:8000/>                              |
-| Mock 外部服务（Billing/CRM 等） | <http://localhost:8001/>                              |
-| Prometheus / Grafana            | <http://localhost:19090/> · <http://localhost:13000/> |
-| PostgreSQL / Redis / Milvus     | `54329` · `16380` · `19541`                           |
 
 > 完整部署（Kubernetes、备份恢复、密钥轮换）见 [`docs/architecture/部署运维手册.md`](docs/architecture/部署运维手册.md)。
 
