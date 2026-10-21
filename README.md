@@ -172,6 +172,23 @@ Redis 队列执行异步维护任务（模块 `backend.tasks.worker` / `backend.
 - **模型网关**：应用启动时经 `create_model_gateway()` 创建网关并放入 `app.state`——未配置 `DEEPSEEK_API_KEY` 时使用离线 `FakeModelGateway`（本地启动与自动测试不访问外网）；`DEEPSEEK_API_KEY` 只允许从运行时环境变量读取，仓库、测试、日志与文档不保存 Key、完整 Prompt 或模型响应原文；自动回归不执行真实 API 冒烟请求。
 - **模型路由与 Prompt**：`MODEL_ROUTE_MODEL` / `MODEL_ROUTE_PROVIDER` 配置模型路由（默认 `deepseek-v4-flash`）；`PromptRegistry` 管理版本化 Prompt 模板；`ContextBudget` 对知识证据与系统 Prompt 做字符预算，防止上下文无限拼接。
 
+本地 JWT 与开发 Header 只用于开发、演示和集成测试，不代表已经接入正式 OAuth/SSO。客户咨询需要 `customer.consult`，知识摄取需要 `knowledge.ingest`，Runtime 查询需要 `runtime.read`；其余接口同样执行租户与权限校验。
+
+## 🔌 HTTP API 与流式事件
+
+后端入口为 `backend.main:app`，主要接口包括：
+
+- `POST /api/v1/customer-consultations`：执行安全 Guard、知识检索和多智能体咨询工作流；
+- `POST /api/v1/customer-consultations/stream`：通过 SSE 返回 `started`、`evidence`、`completed` 和 `done` 事件，不输出思维链、系统 Prompt、Key 或知识原文；
+- `POST /api/v1/conversations`、`GET /api/v1/conversations`：创建和查询租户会话；
+- `POST /api/v1/tickets`、`GET /api/v1/tickets`：创建和查询工单；
+- `POST /api/v1/refunds`、`POST /api/v1/approvals/{approval_request_id}`：提交本地退款申请并完成审批恢复；
+- `POST /api/v1/knowledge/documents`、`GET /api/v1/knowledge/search`：知识摄取与检索；
+- `POST /api/v1/evaluations/run`：运行检索评测并返回 Recall@K、MRR 与 NDCG；
+- `GET /api/v1/runtime/traces`：查询当前租户的脱敏 Runtime Trace。
+
+退款链路的“完成”只表示本地退款申请、审批动作、审计事件和 Checkpoint 已持久化，不代表第三方资金已经到账。
+
 ## 📚 RAG 向量知识库
 
 - `POST /api/v1/knowledge/documents` 摄取知识 → 文本分片写入 `knowledge_chunks` → 同步 Milvus 向量集合

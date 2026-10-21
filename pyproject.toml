@@ -20,6 +20,8 @@ dependencies = [
   "uvicorn==0.32.1",
   "httpx==0.28.1",
   "pymilvus==2.4.9",
+  "numpy==1.26.4",
+  "pandas==2.2.3",
   "PyJWT==2.13.0",
 ]
 
