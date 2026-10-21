@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import timezone
+import os
 from uuid import uuid4
 
 import pytest
@@ -9,7 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from backend.database.base import Base
 
-TEST_DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations"
+TEST_DATABASE_URL = os.getenv(
+    "TEST_DATABASE_URL",
+    os.getenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations",
+    ),
+)
 
 
 @pytest.fixture

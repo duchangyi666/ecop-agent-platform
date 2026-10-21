@@ -39,7 +39,11 @@ def _as_graph(async_node) -> Any:
     return sub.compile()
 
 
-def _make_retrieve_node(session_factory: async_sessionmaker, event_sink: EventSink):
+def _make_retrieve_node(
+    session_factory: async_sessionmaker,
+    event_sink: EventSink,
+    knowledge_retriever=None,
+):
     async def retrieve_node(state: AgentState) -> dict[str, object]:
         from backend.rag.config import get_rag_settings
         from backend.rag.reranker import create_reranker
@@ -49,7 +53,7 @@ def _make_retrieve_node(session_factory: async_sessionmaker, event_sink: EventSi
         if not _last_user_message(state).strip():
             raise ValueError("conversation cannot be empty")
         try:
-            retriever = ConsultationKnowledgeRetriever(
+            retriever = knowledge_retriever or ConsultationKnowledgeRetriever(
                 session_factory,
                 vector_store=create_knowledge_vector_store(),
                 reranker=create_reranker(get_rag_settings()),
@@ -290,6 +294,7 @@ def build_main_graph(
     model_gateway: ModelGateway | None = None,
     session_factory: async_sessionmaker | None = None,
     event_sink: EventSink = None,
+    knowledge_retriever=None,
 ) -> StateGraph:
     from backend.agent.agents.customer_service import build_customer_service_graph
 
@@ -300,7 +305,10 @@ def build_main_graph(
     graph.add_node("input_security_guard", input_security_guard_node)
     graph.add_node("domain_guard", domain_guard_node)
     graph.add_node("normalize_request", _normalize_request_node)
-    graph.add_node("retrieve", _as_graph(_make_retrieve_node(session_factory, event_sink)))
+    graph.add_node(
+        "retrieve",
+        _as_graph(_make_retrieve_node(session_factory, event_sink, knowledge_retriever)),
+    )
     graph.add_node("supervisor_agent", _as_graph(make_supervisor_node(model_gateway)))
     graph.add_node(
         "customer_service_agent",

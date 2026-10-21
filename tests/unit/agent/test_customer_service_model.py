@@ -69,6 +69,7 @@ async def test_customer_service_graph_converts_model_error_to_safe_handoff() -> 
 
     assert result["model_error"].code == "model_timeout"
     assert result["final_response"] == "当前智能回复服务暂时不可用，将为您转人工处理。"
+    assert result["status"] == "human_handoff"
     assert result["next_action"] == "human_handoff"
 
 
@@ -83,6 +84,7 @@ async def test_customer_service_graph_filters_sensitive_model_output() -> None:
     assert result["response_review"].status == "block"
     assert result["response_review"].code == "response_sensitive_content"
     assert "sk-test-123456789" not in result["final_response"]
+    assert result["status"] == "human_handoff"
     assert result["next_action"] == "human_handoff"
 
 

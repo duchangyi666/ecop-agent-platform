@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from decimal import Decimal
+import os
 from uuid import UUID, uuid4
 
 import pytest_asyncio
@@ -42,7 +43,13 @@ from backend.database.models.support import (
 )
 from backend.domain.billing import PaymentStatus
 
-TEST_DATABASE_URL = "postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations"
+TEST_DATABASE_URL = os.getenv(
+    "TEST_DATABASE_URL",
+    os.getenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations",
+    ),
+)
 
 
 @pytest_asyncio.fixture

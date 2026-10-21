@@ -64,8 +64,13 @@ class ConsultationKnowledgeRetriever:
             query=query,
             limit=limit,
         )
+        postgres_evidence = await self._retrieve_from_postgres(
+            scope=scope,
+            query=query,
+            limit=limit,
+        )
         if not hits:
-            return []
+            return postgres_evidence
         async with self.session_factory() as session:
             repository = KnowledgeRepository(session)
             documents = await repository.get_documents_by_ids(
@@ -91,11 +96,6 @@ class ConsultationKnowledgeRetriever:
                     score=hit.score,
                 )
             )
-        postgres_evidence = await self._retrieve_from_postgres(
-            scope=scope,
-            query=query,
-            limit=limit,
-        )
         return merge_evidence(evidence, postgres_evidence, limit=limit)
 
     async def _retrieve_from_postgres(

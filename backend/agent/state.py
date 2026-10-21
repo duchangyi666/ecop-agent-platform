@@ -39,6 +39,7 @@ class AgentState(BaseModel):
     conversation: list[ConversationMessage] = Field(default_factory=list)
     customer_id: UUID | None = None
     knowledge_evidence: list[KnowledgeEvidence] = Field(default_factory=list)
+    status: str = "completed"
     next_action: str = "finish"
     guard_decision: GuardDecision | None = None
     domain_decision: DomainDecision | None = None

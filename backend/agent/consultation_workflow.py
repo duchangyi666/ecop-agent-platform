@@ -181,7 +181,10 @@ class CustomerConsultationService:
         # customer-service streamed answer. run() only emits lifecycle events
         # and persists afterwards.
         graph = build_main_graph(
-            self.model_gateway, self.session_factory, self.event_sink
+            self.model_gateway,
+            self.session_factory,
+            self.event_sink,
+            self.knowledge_retriever,
         )
         final_state = await graph.compile().ainvoke(request.state)
 
