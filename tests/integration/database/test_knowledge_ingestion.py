@@ -176,3 +176,49 @@ async def test_knowledge_ingest_blocks_sensitive_content(
                 chunk_overlap=20,
             ),
         )
+
+
+@pytest.mark.asyncio
+async def test_reingesting_same_document_replaces_chunks(
+    session_factory,
+    tenant_a,
+    tenant_a_user,
+) -> None:
+    scope = _scope(tenant_a, tenant_a_user)
+    service = KnowledgeIngestService(session_factory)
+    content = "退款政策第一条。" * 20
+
+    first = await service.run(
+        scope=scope,
+        request=KnowledgeIngestRequest(
+            thread_id="reingest-1",
+            external_document_id="reingest-policy",
+            title="退款政策",
+            content=content,
+            chunk_size=100,
+            chunk_overlap=20,
+        ),
+    )
+    second = await service.run(
+        scope=scope,
+        request=KnowledgeIngestRequest(
+            thread_id="reingest-2",
+            external_document_id="reingest-policy",
+            title="退款政策（更新）",
+            content=content + "补充说明。",
+            chunk_size=100,
+            chunk_overlap=20,
+        ),
+    )
+
+    assert second.document_id == first.document_id
+    assert second.version_number == first.version_number + 1
+    async with session_factory() as session:
+        active_chunks = await session.scalar(
+            select(func.count(KnowledgeChunk.id)).where(
+                KnowledgeChunk.tenant_id == tenant_a.id,
+                KnowledgeChunk.document_id == first.document_id,
+                KnowledgeChunk.deleted_at.is_(None),
+            )
+        )
+    assert active_chunks == second.chunk_count

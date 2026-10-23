@@ -12,6 +12,19 @@ from backend.rag.reranker import KnowledgeReranker
 from backend.rag.vector_store import KnowledgeVectorStore
 
 
+def _bounded_score(score: float | None) -> float | None:
+    """Clamp cosine similarity into the documented 0..1 evidence range.
+
+    Milvus COSINE can return values slightly below 0 for unrelated vectors;
+    KnowledgeEvidence rejects negative scores, which used to abort the whole
+    retrieval and silently return empty evidence. Clamp instead of failing.
+    """
+
+    if score is None:
+        return None
+    return max(0.0, min(1.0, score))
+
+
 class ConsultationKnowledgeRetriever:
     def __init__(
         self,
@@ -93,7 +106,7 @@ class ConsultationKnowledgeRetriever:
                     title=document.title,
                     source_uri=document.source_uri,
                     content_snippet=hit.content_snippet,
-                    score=hit.score,
+                    score=_bounded_score(hit.score),
                 )
             )
         return merge_evidence(evidence, postgres_evidence, limit=limit)

@@ -90,12 +90,18 @@ class GovernanceRepository(TenantScopedRepository):
         trace_id: UUID,
         status: str,
         error_summary: str | None,
+        total_input_tokens: int | None = None,
+        total_output_tokens: int | None = None,
     ) -> RuntimeTrace:
         trace = await self.session.get(RuntimeTrace, trace_id)
         if trace is None or trace.deleted_at is not None:
             raise DomainError("runtime trace not found")
         trace.status = status
         trace.error_summary = error_summary[:500] if error_summary else None
+        if total_input_tokens is not None:
+            trace.total_input_tokens = max(0, total_input_tokens)
+        if total_output_tokens is not None:
+            trace.total_output_tokens = max(0, total_output_tokens)
         trace.finished_at = datetime.now(timezone.utc)
         await self.session.flush()
         return trace

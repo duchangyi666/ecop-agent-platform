@@ -176,6 +176,10 @@ class KnowledgeRepository(TenantScopedRepository):
         old_chunks = list(await self.session.scalars(old_statement))
         for chunk in old_chunks:
             await self.session.delete(chunk)
+        # Flush the DELETEs before inserting the new chunk numbers: the
+        # (tenant_id, document_id, chunk_number) unique constraint would
+        # otherwise fire when SQLAlchemy batches INSERTs ahead of DELETEs.
+        await self.session.flush()
         for chunk in chunks:
             self.session.add(chunk)
         await self.session.flush()

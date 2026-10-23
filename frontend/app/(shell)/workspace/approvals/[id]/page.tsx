@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/form";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ErrorState, InlineLoader } from "@/components/ui/states";
-import { approvalStatus, formatDateTime, formatMoney, riskLevel } from "@/lib/format";
+import { approvalAction, approvalRole, approvalStatus, formatDateTime, formatMoney, riskLevel } from "@/lib/format";
 
 export default function ApprovalDetailPage() {
   const params = useParams<{ id: string }>();
@@ -62,7 +62,7 @@ export default function ApprovalDetailPage() {
       </Link>
 
       <div className="flex items-center gap-3">
-        <h1 className="text-lg font-semibold">{a.action}</h1>
+        <h1 className="text-lg font-semibold">{approvalAction(a.action)}</h1>
         <StatusBadge value={a.status} label={approvalStatus(a.status)} />
       </div>
 
@@ -82,7 +82,7 @@ export default function ApprovalDetailPage() {
             </div>
             <div>
               <dt className="text-xs text-muted-foreground">审批角色</dt>
-              <dd>{a.approval_role}</dd>
+              <dd>{approvalRole(a.approval_role)}</dd>
             </div>
             <div>
               <dt className="text-xs text-muted-foreground">关联工单</dt>

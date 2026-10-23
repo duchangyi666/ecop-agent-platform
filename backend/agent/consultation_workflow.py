@@ -307,6 +307,8 @@ class CustomerConsultationService:
                 trace_id=trace.id,
                 status=result.status,
                 error_summary=None,
+                total_input_tokens=_get("total_input_tokens", 0),
+                total_output_tokens=_get("total_output_tokens", 0),
             )
 
         return replace(
@@ -371,6 +373,7 @@ class CustomerConsultationService:
         system_prompt, user_prompt = _prompt_messages(
             graph_state.conversation,
             knowledge_evidence=graph_state.knowledge_evidence,
+            structured_output=False,
         )
         accumulated: list[str] = []
         try:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from typing import Any
 
@@ -12,6 +13,25 @@ from backend.llm.contracts import ModelCallError, ModelUsage
 from backend.llm.errors import ModelGatewayError
 
 
+def _build_async_client() -> httpx.AsyncClient:
+    """Build the shared HTTP client after sanitising malformed NO_PROXY entries.
+
+    httpx 0.28 expands a bracketed IPv6 ``NO_PROXY`` entry such as ``[::1]``
+    into the pattern ``all://*[::1]``, which fails URL parsing with
+    ``InvalidURL: Invalid port``. The bare ``::1`` entry already covers the
+    same host, so drop the bracketed duplicate before constructing the client.
+    """
+
+    raw = os.environ.get("NO_PROXY") or os.environ.get("no_proxy") or ""
+    if "[" in raw:
+        cleaned = ",".join(
+            part.strip() for part in raw.split(",") if part.strip() and "[" not in part
+        )
+        os.environ["NO_PROXY"] = cleaned
+        os.environ["no_proxy"] = cleaned
+    return httpx.AsyncClient()
+
+
 class DeepSeekGateway:
     def __init__(
         self,
@@ -20,7 +40,7 @@ class DeepSeekGateway:
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self.settings = settings
-        self._client = client or httpx.AsyncClient()
+        self._client = client or _build_async_client()
         self._owns_client = client is None
 
     async def aclose(self) -> None:

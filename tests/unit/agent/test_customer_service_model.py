@@ -4,7 +4,11 @@ from uuid import uuid4
 
 import pytest
 
-from backend.agent.agents.customer_service import build_customer_service_graph
+from backend.agent.agents.customer_service import (
+    _extract_reply_text,
+    _prompt_messages,
+    build_customer_service_graph,
+)
 from backend.agent.graphs.main_graph import build_main_graph
 from backend.agent.state import create_agent_state
 from backend.database.base import TenantScope
@@ -95,3 +99,23 @@ async def test_main_graph_default_customer_route_is_offline() -> None:
     assert result["specialist_result"].agent_name == "customer_service"
     assert result["model_call_count"] == 1
     assert result["final_response"]
+
+
+def test_extract_reply_text_handles_reply_key() -> None:
+    payload = {
+        "reply": "已为您创建退款申请。",
+        "actions_taken": ["refund requested"],
+    }
+
+    assert _extract_reply_text(payload) == "已为您创建退款申请。"
+
+
+def test_streaming_prompt_does_not_request_structured_json() -> None:
+    state = new_state("我的账单被重复扣费了")
+
+    structured_system, _ = _prompt_messages(state.conversation)
+    stream_system, _ = _prompt_messages(state.conversation, structured_output=False)
+
+    assert "请输出结构化 JSON" in structured_system
+    assert "请输出结构化 JSON" not in stream_system
+    assert "不要输出 JSON" in stream_system

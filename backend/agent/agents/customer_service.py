@@ -49,7 +49,7 @@ def _extract_reply_text(value: Any) -> str:
     """Unwrap common JSON/code-fence model responses before safety review."""
 
     if isinstance(value, dict):
-        for key in ("answer", "response", "content", "text"):
+        for key in ("answer", "response", "content", "text", "reply"):
             if value.get(key):
                 return str(value[key]).strip()
         return json.dumps(value, ensure_ascii=False)
@@ -121,10 +121,19 @@ def _prompt_messages(
     knowledge_evidence: Sequence[KnowledgeEvidence] | None = None,
     prompt_registry: PromptRegistry | None = None,
     context_budget: ContextBudget | None = None,
+    *,
+    structured_output: bool = True,
 ) -> tuple[str, str]:
     registry = prompt_registry or create_default_prompt_registry()
     budget = context_budget or ContextBudget()
     system_prompt = registry.get("customer_service").template
+    if not structured_output:
+        # Streaming answers are shown token by token; asking for JSON here
+        # makes the model stream raw {"reply": ...} into the UI.
+        system_prompt = system_prompt.replace(
+            "请输出结构化 JSON。",
+            "请直接输出自然语言回复，不要输出 JSON、字段名或代码块。",
+        )
     if knowledge_evidence:
         evidence_lines: list[str] = []
         used_characters = 0
@@ -249,7 +258,9 @@ async def stream_customer_answer(
         return preflight
 
     system_prompt, user_prompt = _prompt_messages(
-        state.conversation, knowledge_evidence=state.knowledge_evidence
+        state.conversation,
+        knowledge_evidence=state.knowledge_evidence,
+        structured_output=False,
     )
     accumulated: list[str] = []
     try:

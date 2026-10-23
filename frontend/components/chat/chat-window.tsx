@@ -301,7 +301,7 @@ export function ChatWindow() {
                           {result.snippet}
                         </p>
                       )}
-                      {typeof result.score === "number" && (
+                      {typeof result.score === "number" && result.score > 0.5 && (
                         <p className="mt-1 text-[11px] tabular-nums text-muted-foreground">
                           相关度 {result.score.toFixed(3)}
                           {result.source ? ` · ${result.source}` : ""}

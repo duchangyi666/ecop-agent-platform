@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.agent.state import ConversationMessage, KnowledgeEvidence
+from backend.agent.policies.risk import HIGH_RISK_REFUND_THRESHOLD
 from backend.agent.tools.billing import BillingTool, RefundToolRequest
 from backend.core.retry import with_retry
 from backend.agent.tools.ticket import TicketCreateRequest, TicketTool
@@ -67,6 +68,7 @@ class ActionResult(BaseModel):
     summary: str
     ticket_id: UUID | None = None
     refund_id: UUID | None = None
+    approval_request_id: UUID | None = None
 
 
 class ConversationActionExecutor:
@@ -269,15 +271,63 @@ class ConversationActionExecutor:
             except DomainError as exc:
                 return ActionResult(action="request_refund", summary=f"退款申请未通过校验：{exc}")
             status = refund.status.value if hasattr(refund.status, "value") else str(refund.status)
+            approval_request_id: UUID | None = None
+            approval_note = ""
+            if duplicate.amount >= HIGH_RISK_REFUND_THRESHOLD:
+                checkpoint = await uow.governance.get_workflow_checkpoint(
+                    scope=scope, thread_id=thread_id
+                )
+                existing_approval_id = (
+                    (checkpoint.state_summary or {}).get("approval_request_id")
+                    if checkpoint is not None
+                    else None
+                )
+                if existing_approval_id:
+                    approval_request_id = UUID(str(existing_approval_id))
+                    approval_note = (
+                        f" 该金额需要财务经理审批，审批单 {approval_request_id} 正在等待处理。"
+                    )
+                else:
+                    approval = await uow.support.create_refund_approval_request(
+                        scope=scope,
+                        refund_id=refund.id,
+                        action="approve_refund",
+                        payload={
+                            "amount": str(duplicate.amount),
+                            "payment_id": str(duplicate.id),
+                            "refund_id": str(refund.id),
+                            "source": "customer_chat",
+                        },
+                        approval_role="finance_manager",
+                        checkpoint_reference=thread_id,
+                    )
+                    approval_request_id = approval.id
+                    await uow.governance.save_workflow_checkpoint(
+                        scope=scope,
+                        thread_id=thread_id,
+                        state_summary={
+                            "thread_id": thread_id,
+                            "refund_id": str(refund.id),
+                            "approval_request_id": str(approval.id),
+                            "next_action": "human_handoff",
+                        },
+                        refund_idempotency_key=idempotency_key,
+                        status="awaiting_approval",
+                        trace_id=None,
+                    )
+                    approval_note = (
+                        f" 该金额达到审批门槛，已提交财务经理审批，审批单号 {approval.id}。"
+                    )
             return ActionResult(
                 action="request_refund",
                 summary=(
                     f"经核实，您确有一笔重复扣费（{duplicate.paid_at:%m-%d} {duplicate.amount} 元，"
                     "24 小时内出现两笔相同金额）。我已为您创建退款申请，"
                     f"退款单号 {refund.id}，当前状态：{status}。"
-                    "若金额较高将进入人工审批，审批通过后自动执行。"
+                    f"{approval_note}"
                 ),
                 refund_id=refund.id,
+                approval_request_id=approval_request_id,
             )
 
     async def _create_ticket(

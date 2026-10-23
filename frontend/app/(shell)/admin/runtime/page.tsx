@@ -16,6 +16,19 @@ const TABS = [
   { key: "agents", label: "Agent" },
 ];
 
+const ENTRYPOINT_LABELS: Record<string, string> = {
+  "agent.customer_consultation": "客户咨询",
+  "agent.refund": "退款流程",
+  "agent.knowledge": "知识检索",
+  "agent.knowledge.ingest": "知识摄取",
+  "agent.ticket": "工单流程",
+};
+
+function traceLabel(trace: { trace_id: string; entrypoint: string }): string {
+  const label = ENTRYPOINT_LABELS[trace.entrypoint] ?? trace.entrypoint;
+  return `${label} · ${trace.trace_id.slice(0, 8)}`;
+}
+
 export default function RuntimePage() {
   const [tab, setTab] = useState("traces");
   const traces = useRuntimeTraces();
@@ -48,7 +61,7 @@ export default function RuntimePage() {
                     <TableHead>Trace</TableHead>
                     <TableHead>入口</TableHead>
                     <TableHead>状态</TableHead>
-                    <TableHead>成本</TableHead>
+                    <TableHead className="w-20 whitespace-nowrap">成本</TableHead>
                     <TableHead>开始时间</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -60,14 +73,16 @@ export default function RuntimePage() {
                           href={`/admin/runtime/${trace.trace_id}`}
                           className="font-medium hover:text-accent"
                         >
-                          {trace.trace_key}
+                          {traceLabel(trace)}
                         </Link>
                       </TableCell>
                       <TableCell>{trace.entrypoint}</TableCell>
                       <TableCell>
                         <StatusBadge value={trace.status} label={trace.status} />
                       </TableCell>
-                      <TableCell className="tabular-nums">{formatMoney(trace.total_cost)}</TableCell>
+                      <TableCell className="tabular-nums">
+                        {Number(trace.total_cost) > 0 ? formatMoney(trace.total_cost) : "—"}
+                      </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {formatDateTime(trace.started_at)}
                       </TableCell>
@@ -107,7 +122,10 @@ export default function RuntimePage() {
                 </CardHeader>
                 <CardContent>
                   <p className="text-2xl font-semibold tabular-nums">
-                    {formatMoney(costs.data.total_cost)}
+                    {Number(costs.data.total_cost) > 0 ? formatMoney(costs.data.total_cost) : "—"}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    当前未接入计价规则，Token 统计可用
                   </p>
                 </CardContent>
               </Card>

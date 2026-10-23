@@ -8,7 +8,7 @@ import { Tabs } from "@/components/ui/tabs";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { approvalStatus, formatDateTime, formatMoney, riskLevel } from "@/lib/format";
+import { approvalAction, approvalRole, approvalStatus, formatDateTime, formatMoney, riskLevel } from "@/lib/format";
 
 const STATUS_TABS = [
   { key: "pending", label: "待审批" },
@@ -49,27 +49,29 @@ export default function ApprovalsPage() {
                   <TableHead>审批角色</TableHead>
                   <TableHead>状态</TableHead>
                   <TableHead>过期时间</TableHead>
+                  <TableHead className="text-right">操作</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {approvals.data.approvals.map((approval) => (
                   <TableRow key={approval.approval_request_id}>
-                    <TableCell>
-                      <Link
-                        href={`/workspace/approvals/${approval.approval_request_id}`}
-                        className="font-medium hover:text-accent"
-                      >
-                        {approval.action}
-                      </Link>
-                    </TableCell>
+                    <TableCell className="font-medium">{approvalAction(approval.action)}</TableCell>
                     <TableCell className="tabular-nums">{formatMoney(approval.amount)}</TableCell>
                     <TableCell>{riskLevel(approval.risk_level)}</TableCell>
-                    <TableCell>{approval.approval_role}</TableCell>
+                    <TableCell>{approvalRole(approval.approval_role)}</TableCell>
                     <TableCell>
                       <StatusBadge value={approval.status} label={approvalStatus(approval.status)} />
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       {formatDateTime(approval.expires_at)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Link
+                        href={`/workspace/approvals/${approval.approval_request_id}`}
+                        className="text-xs font-medium text-accent hover:underline"
+                      >
+                        审批
+                      </Link>
                     </TableCell>
                   </TableRow>
                 ))}

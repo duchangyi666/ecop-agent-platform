@@ -63,6 +63,16 @@ const REFUND_STATUS: Record<string, string> = {
   unknown_execution_state: "状态未知",
 };
 
+const APPROVAL_ACTION: Record<string, string> = {
+  approve_refund: "退款审批",
+};
+
+const APPROVAL_ROLE: Record<string, string> = {
+  finance_manager: "财务经理",
+  support_manager: "客服主管",
+  tenant_admin: "租户管理员",
+};
+
 export function ticketStatus(value: string | null | undefined): string {
   return value ? (TICKET_STATUS[value] ?? value) : "-";
 }
@@ -89,6 +99,14 @@ export function ticketCategory(value: string | null | undefined): string {
 
 export function refundStatus(value: string | null | undefined): string {
   return value ? (REFUND_STATUS[value] ?? value) : "-";
+}
+
+export function approvalAction(value: string | null | undefined): string {
+  return value ? (APPROVAL_ACTION[value] ?? value) : "-";
+}
+
+export function approvalRole(value: string | null | undefined): string {
+  return value ? (APPROVAL_ROLE[value] ?? value) : "-";
 }
 
 export function formatDateTime(value: string | null | undefined): string {

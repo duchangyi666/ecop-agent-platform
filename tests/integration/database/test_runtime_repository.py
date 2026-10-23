@@ -41,6 +41,8 @@ async def test_runtime_repository_lists_traces_spans_cost_and_agents(
             trace_id=trace.id,
             status="completed",
             error_summary=None,
+            total_input_tokens=120,
+            total_output_tokens=60,
         )
         await governance.record_runtime_span(
             trace_id=trace.id,
@@ -62,7 +64,7 @@ async def test_runtime_repository_lists_traces_spans_cost_and_agents(
     assert detail is not None
     assert len(spans) == 1
     assert summary["trace_count"] == 1
-    assert summary["total_input_tokens"] == 100
-    assert summary["total_output_tokens"] == 50
+    assert summary["total_input_tokens"] == 120
+    assert summary["total_output_tokens"] == 60
     assert summary["total_cost"] == "0.03"
     assert [item.agent_code for item in agents] == ["customer_service"]
