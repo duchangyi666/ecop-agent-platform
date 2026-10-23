@@ -216,11 +216,12 @@ GitHub Actions 流水线（`.github/workflows/ci.yml`）会自动启动 PostgreS
 
 ```powershell
 # 单元测试 + 集成测试（需要本地基础设施）
-pytest tests/unit tests/integration/database tests/integration/agent tests/integration/api tests/integration/vectorstore tests/integration/external_services -q
+$env:TEST_DATABASE_URL = $env:DATABASE_URL   # 必须显式指定，测试不会回退到 DATABASE_URL
+.\.venv\Scripts\python.exe -m pytest tests/unit tests/integration/database tests/integration/agent tests/integration/api tests/integration/vectorstore tests/integration/external_services -q
 
 # 数据库结构与迁移头验收
-python scripts/verify_database.py
-python -m alembic check
+.\.venv\Scripts\python.exe scripts/verify_database.py
+.\.venv\Scripts\python.exe -m alembic check
 ```
 
 关键测试覆盖：Guard 拦截、业务域识别、退款策略、审批恢复、知识摄取与检索、SSE 流式、权限矩阵、API 合同（README 与代码一致性）。
