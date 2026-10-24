@@ -168,11 +168,15 @@ Redis 队列执行异步维护任务（模块 `backend.tasks.worker` / `backend.
 
 ## 🔐 认证与模型网关
 
-- **认证**：本地 JWT（`JWT_SECRET` 需 ≥32 字节，`JWT_TOKEN_EXPIRES_MINUTES` 控制有效期）；业务请求可带 `Authorization: Bearer <token>`，开发环境可降级到 `X-Tenant-Id` 等请求头；生产 `AUTH_MODE=jwt-only` 强制 Bearer 并禁用自助签发接口。
+- **认证**：`AUTH_MODE` 支持 `dev` / `jwt-only` / `oidc`。
+  - `dev`：本地 JWT + 开发 Header（`X-Tenant-Id` 等），可用 `/api/v1/auth/tokens` 自助签发；
+  - `jwt-only`：只接受 `Authorization: Bearer <token>`，开发 Header 失效；
+  - `oidc`：浏览器走标准 OIDC Authorization Code + PKCE，后端作为 BFF 交换 code 并校验 ID Token，再签发平台 JWT；开发 Header 与 `/auth/tokens` 均禁用。
+  - 本地 OIDC 使用 Dex：`docker compose -f infra/compose/docker-compose.identity.yml up -d`，issuer 为 `http://localhost:8081/dex`，演示账号 `demo@clouddesk.local / Demo@123456`。
 - **模型网关**：应用启动时经 `create_model_gateway()` 创建网关并放入 `app.state`——未配置 `DEEPSEEK_API_KEY` 时使用离线 `FakeModelGateway`（本地启动与自动测试不访问外网）；`DEEPSEEK_API_KEY` 只允许从运行时环境变量读取，仓库、测试、日志与文档不保存 Key、完整 Prompt 或模型响应原文；自动回归不执行真实 API 冒烟请求。
 - **模型路由与 Prompt**：`MODEL_ROUTE_MODEL` / `MODEL_ROUTE_PROVIDER` 配置模型路由（默认 `deepseek-v4-flash`）；`PromptRegistry` 管理版本化 Prompt 模板；`ContextBudget` 对知识证据与系统 Prompt 做字符预算，防止上下文无限拼接。
 
-本地 JWT 与开发 Header 只用于开发、演示和集成测试，不代表已经接入正式 OAuth/SSO。客户咨询需要 `customer.consult`，知识摄取需要 `knowledge.ingest`，Runtime 查询需要 `runtime.read`；其余接口同样执行租户与权限校验。
+`AUTH_MODE=oidc` 已在本地 Dex 上验证；生产需把 issuer/client 换为企业 IdP（Keycloak / Entra ID / Auth0），并把浏览器侧 JWT 存储升级为 HttpOnly Cookie + CSRF 防护。开发 Header 只用于本地和集成测试，不代表生产边界。客户咨询需要 `customer.consult`，知识摄取需要 `knowledge.ingest`，Runtime 查询需要 `runtime.read`；其余接口同样执行租户与权限校验。
 
 ## 🔌 HTTP API 与流式事件
 

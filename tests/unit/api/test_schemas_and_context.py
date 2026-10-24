@@ -23,6 +23,37 @@ def test_request_context_rejects_missing_tenant_header() -> None:
         )
 
 
+def test_request_context_allows_dev_headers_in_dev_mode(monkeypatch) -> None:
+    monkeypatch.delenv("AUTH_MODE", raising=False)
+    tenant_id = uuid4()
+    actor_id = uuid4()
+
+    context = get_request_context(
+        x_tenant_id=str(tenant_id),
+        x_actor_id=str(actor_id),
+        x_actor_type="user",
+        x_request_id="req-dev",
+    )
+
+    assert context.scope.tenant_id == tenant_id
+    assert context.scope.actor_id == actor_id
+
+
+def test_request_context_rejects_dev_headers_in_oidc_mode(monkeypatch) -> None:
+    monkeypatch.setenv("AUTH_MODE", "oidc")
+
+    with pytest.raises(HTTPException) as exc_info:
+        get_request_context(
+            x_tenant_id=str(uuid4()),
+            x_actor_id=str(uuid4()),
+            x_actor_type="user",
+            x_request_id="req-oidc",
+        )
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail["code"] == "authentication_required"
+
+
 def test_refund_request_requires_positive_amount() -> None:
     with pytest.raises(ValueError):
         RefundCreateRequest(

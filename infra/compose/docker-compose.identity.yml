@@ -1,0 +1,10 @@
+services:
+  dex:
+    image: ghcr.io/dexidp/dex:v2.41.1
+    container_name: ecop-dex
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+    ports:
+      - "8081:8081"
+    volumes:
+      - ../dex/config.yaml:/etc/dex/config.yaml:ro
+    restart: unless-stopped

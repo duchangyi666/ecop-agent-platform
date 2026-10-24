@@ -8,8 +8,8 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $envFile = Join-Path $root ".env"
 
-# Load local demo configuration. Values in .env win over inherited process
-# environment so filling DEEPSEEK_API_KEY there is enough for a restart.
+# Load local demo configuration. Explicit process env wins (useful for
+# AUTH_MODE=oidc smoke tests); .env fills anything not already set.
 if (Test-Path $envFile) {
     Get-Content -LiteralPath $envFile -Encoding UTF8 | ForEach-Object {
         $line = $_.Trim()
@@ -18,7 +18,8 @@ if (Test-Path $envFile) {
         if ($separator -lt 1) { return }
         $name = $line.Substring(0, $separator).Trim()
         $value = $line.Substring($separator + 1).Trim()
-        if ($name) {
+        $existing = [Environment]::GetEnvironmentVariable($name, "Process")
+        if ($name -and [string]::IsNullOrEmpty($existing)) {
             Set-Item -Path "Env:$name" -Value $value
         }
     }

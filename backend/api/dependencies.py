@@ -34,6 +34,15 @@ def _invalid_token() -> HTTPException:
     return HTTPException(
         status_code=401,
         detail={"code": "invalid_token", "message": "invalid or expired access token"},
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def _missing_token() -> HTTPException:
+    return HTTPException(
+        status_code=401,
+        detail={"code": "authentication_required", "message": "bearer token is required"},
+        headers={"WWW-Authenticate": "Bearer"},
     )
 
 
@@ -70,6 +79,12 @@ def get_request_context(
             ),
             request_id=x_request_id or f"request-{uuid4().hex}",
         )
+
+    # In production modes the development header boundary must be impossible
+    # to reach, even if a caller sends X-Tenant-Id/X-Actor-Id.
+    if get_auth_settings().auth_mode != "dev":
+        raise _missing_token()
+
     if not x_actor_type or not x_actor_type.strip():
         raise _invalid_context("X-Actor-Type is required")
     return RequestContext(

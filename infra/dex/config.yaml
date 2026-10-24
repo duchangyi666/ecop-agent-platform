@@ -1,0 +1,26 @@
+issuer: http://localhost:8081/dex
+
+storage:
+  type: memory
+
+web:
+  http: 0.0.0.0:8081
+
+# Local-only demo client. Do not reuse this secret outside a developer machine.
+staticClients:
+  - id: clouddesk-web
+    redirectURIs:
+      - http://localhost:3000/auth/callback
+      - http://127.0.0.1:3000/auth/callback
+    name: CloudDesk Web
+    secret: clouddesk-local-dev-only
+
+enablePasswordDB: true
+
+staticPasswords:
+  - email: demo@clouddesk.local
+    # bcrypt of Demo@123456
+    hash: "$2b$10$cZDIXqjLtSXTOiSGUX4XVusjSskbPcSGyUvxNnrioOWuM8vbK0m3W"
+    username: demo
+    userID: demo-user
+    name: 演示管理员

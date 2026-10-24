@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Building2, ChevronRight, Loader2, User } from "lucide-react";
+import { Building2, ChevronRight, Loader2, LogIn, User } from "lucide-react";
 import { api } from "@/lib/api";
 import type { TenantListResponse, TenantUsersResponse } from "@/lib/types";
 import { useAuthStore } from "@/lib/auth-store";
@@ -16,9 +17,17 @@ export function IdentityPanel() {
   const setIdentity = useAuthStore((state) => state.setIdentity);
   const [selectedTenant, setSelectedTenant] = useState<string | null>(null);
 
+  const modeQuery = useQuery({
+    queryKey: ["auth", "mode"],
+    queryFn: () => api.get<{ mode: string; oidc_configured: boolean }>("/api/v1/auth/mode"),
+    retry: 1,
+  });
+  const isDevMode = modeQuery.data?.mode === "dev";
+
   const tenantsQuery = useQuery({
     queryKey: ["identity", "tenants"],
     queryFn: () => api.get<TenantListResponse>("/api/v1/identity/tenants", { limit: 200 }),
+    enabled: isDevMode,
   });
 
   const usersQuery = useQuery({
@@ -49,11 +58,39 @@ export function IdentityPanel() {
         </span>
         <div>
           <h1 className="text-lg font-semibold">CloudDesk 企业客户运营平台</h1>
-          <p className="text-xs text-muted-foreground">选择开发环境身份以进入对应工作台</p>
+          <p className="text-xs text-muted-foreground">
+            {isDevMode ? "选择开发环境身份以进入对应工作台" : "请使用企业账号登录以进入工作台"}
+          </p>
         </div>
       </div>
 
-      <div className="w-full max-w-md rounded-lg border border-border bg-card shadow-sm">
+      <Link
+        href="/login"
+        className="flex w-full max-w-md items-center justify-center gap-2 rounded-lg border border-accent/40 bg-accent/5 px-4 py-2.5 text-sm font-medium text-accent transition-colors hover:bg-accent/10"
+      >
+        <LogIn className="h-4 w-4" />
+        使用企业账号登录（OIDC）
+      </Link>
+
+      {modeQuery.isLoading && <InlineLoader label="正在确认认证模式" />}
+      {modeQuery.isError && (
+        <div className="w-full max-w-md">
+          <ErrorState error={modeQuery.error} onRetry={() => modeQuery.refetch()} />
+        </div>
+      )}
+      {modeQuery.data && modeQuery.data.mode !== "dev" && (
+        <div className="w-full max-w-md rounded-lg border border-border bg-card p-5 text-sm text-muted-foreground shadow-sm">
+          当前为 <span className="font-medium text-foreground">{modeQuery.data.mode}</span> 认证模式，
+          请使用上方企业账号登录。开发身份选择器已禁用。
+        </div>
+      )}
+
+      <div
+        className={cn(
+          "w-full max-w-md rounded-lg border border-border bg-card shadow-sm",
+          !isDevMode && "hidden",
+        )}
+      >
         {tenantsQuery.isLoading && <InlineLoader label="正在加载租户" />}
         {tenantsQuery.isError && (
           <div className="p-4">

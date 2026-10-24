@@ -25,6 +25,7 @@ dependencies = [
   "setuptools==80.9.0",
   "marshmallow==3.26.1",
   "PyJWT==2.13.0",
+  "cryptography==44.0.0",
 ]
 
 [project.optional-dependencies]
