@@ -79,13 +79,13 @@ jobs:
           npm ci --no-audit --no-fund
           npm audit --audit-level=high
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@v0.33.1
-        with:
-          scan-type: fs
-          scan-ref: .
-          severity: CRITICAL,HIGH
-          exit-code: "1"
-          ignore-unfixed: true
+        run: |
+          docker run --rm -v "$PWD:/repo" aquasec/trivy:0.65.0 fs \
+            --severity CRITICAL,HIGH \
+            --exit-code 1 \
+            --ignore-unfixed \
+            --no-progress \
+            /repo
       - name: Generate SBOM
         uses: anchore/sbom-action@v0
         with:
