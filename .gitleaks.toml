@@ -1,0 +1,9 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Local-only Dex client secret and documented placeholders"
+paths = [
+  '''infra/dex/config.yaml''',
+  '''.env.example''',
+]

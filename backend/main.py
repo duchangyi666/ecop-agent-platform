@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import AsyncExitStack, asynccontextmanager
 import logging
 from pathlib import Path
+import time
 from typing import Any
 from uuid import uuid4
 
@@ -25,7 +26,14 @@ from backend.api.routes.tickets import router as tickets_router
 from backend.domain.common import DomainError
 from backend.llm.factory import create_model_gateway
 from backend.llm.gateway import ModelGateway
+from backend.observability.logging import (
+    configure_logging,
+    reset_request_id,
+    set_request_id,
+)
 from backend.observability.metrics import create_metrics_state, render_prometheus_metrics
+from backend.observability.readiness import readiness_report
+from backend.observability.tracing import setup_tracing
 from backend.rag.vector_store import KnowledgeVectorStore, create_knowledge_vector_store
 
 logger = logging.getLogger(__name__)
@@ -34,7 +42,11 @@ FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend_legacy"
 
 
 def _request_id(request: Request) -> str:
-    return request.headers.get("X-Request-Id") or f"request-{uuid4().hex}"
+    return (
+        getattr(request.state, "request_id", None)
+        or request.headers.get("X-Request-Id")
+        or f"request-{uuid4().hex}"
+    )
 
 
 def _error_response(*, request: Request, status_code: int, code: str, message: str) -> JSONResponse:
@@ -69,22 +81,57 @@ def create_app(
     model_gateway: ModelGateway | None = None,
     knowledge_vector_store: KnowledgeVectorStore | None | Any = _UNSET,
 ) -> FastAPI:
+    configure_logging()
     app = FastAPI(title="Enterprise Customer Operations Platform", version="0.1.0", lifespan=lifespan)
     app.state.model_gateway = model_gateway or create_model_gateway()
     app.state.metrics = create_metrics_state()
     if knowledge_vector_store is _UNSET:
         knowledge_vector_store = create_knowledge_vector_store()
     app.state.knowledge_vector_store = knowledge_vector_store
+    setup_tracing(app)
 
     @app.middleware("http")
     async def observe_http_requests(request: Request, call_next):
-        response = await call_next(request)
+        request_id = request.headers.get("X-Request-Id") or f"request-{uuid4().hex}"
+        request.state.request_id = request_id
+        token = set_request_id(request_id)
+        started = time.perf_counter()
+        try:
+            response = await call_next(request)
+        except Exception:
+            logger.exception(
+                "http_request_failed",
+                extra={"request_id": request_id, "method": request.method, "path": request.url.path},
+            )
+            raise
+        finally:
+            reset_request_id(token)
+        latency_ms = int((time.perf_counter() - started) * 1000)
         app.state.metrics["requests"][(request.method, request.url.path, response.status_code)] += 1
+        response.headers["X-Request-Id"] = request_id
+        logger.info(
+            "http_request",
+            extra={
+                "request_id": request_id,
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": response.status_code,
+                "latency_ms": latency_ms,
+            },
+        )
         return response
 
     @app.get("/healthz", response_model=HealthResponse)
     async def healthz() -> HealthResponse:
         return HealthResponse(status="ok")
+
+    @app.get("/readyz", include_in_schema=False)
+    async def readyz() -> JSONResponse:
+        ready, components = await readiness_report()
+        return JSONResponse(
+            status_code=200 if ready else 503,
+            content={"status": "ready" if ready else "not_ready", "components": components},
+        )
 
     @app.get("/metrics", include_in_schema=False)
     async def metrics() -> Response:

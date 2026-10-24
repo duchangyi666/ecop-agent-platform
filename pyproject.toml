@@ -26,6 +26,13 @@ dependencies = [
   "marshmallow==3.26.1",
   "PyJWT==2.13.0",
   "cryptography==44.0.0",
+  "redis==5.2.1",
+  "opentelemetry-api==1.29.0",
+  "opentelemetry-sdk==1.29.0",
+  "opentelemetry-instrumentation-fastapi==0.50b0",
+  "opentelemetry-instrumentation-httpx==0.50b0",
+  "opentelemetry-instrumentation-sqlalchemy==0.50b0",
+  "opentelemetry-exporter-otlp-proto-http==1.29.0",
 ]
 
 [project.optional-dependencies]
