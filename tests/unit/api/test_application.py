@@ -122,3 +122,58 @@ def test_cors_rejects_unsafe_or_invalid_origins(monkeypatch, origins: str) -> No
 
     with pytest.raises(ValueError, match="CORS"):
         create_app()
+
+
+def test_request_body_limit_rejects_declared_oversized_payload(monkeypatch) -> None:
+    monkeypatch.setenv("MAX_REQUEST_BODY_BYTES", "32")
+
+    response = TestClient(create_app()).post(
+        "/api/v1/auth/tokens",
+        content=b"x" * 33,
+        headers={"Content-Type": "application/json", "X-Request-Id": "limit-test"},
+    )
+
+    assert response.status_code == 413
+    assert response.json() == {
+        "error": {
+            "code": "request_too_large",
+            "message": "request body exceeds 32 bytes",
+            "request_id": "limit-test",
+        }
+    }
+    assert response.headers["x-request-id"] == "limit-test"
+    assert response.headers["x-content-type-options"] == "nosniff"
+
+
+def test_request_body_limit_counts_streamed_chunks(monkeypatch) -> None:
+    monkeypatch.setenv("MAX_REQUEST_BODY_BYTES", "32")
+
+    response = TestClient(create_app()).post(
+        "/api/v1/auth/tokens",
+        content=iter((b"x" * 20, b"y" * 20)),
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "request_too_large"
+
+
+def test_request_body_at_limit_reaches_route_validation(monkeypatch) -> None:
+    monkeypatch.setenv("MAX_REQUEST_BODY_BYTES", "32")
+
+    response = TestClient(create_app()).post(
+        "/api/v1/auth/tokens",
+        content=b"{}",
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_request"
+
+
+@pytest.mark.parametrize("value", ("0", "-1", "not-an-integer"))
+def test_request_body_limit_rejects_invalid_configuration(monkeypatch, value: str) -> None:
+    monkeypatch.setenv("MAX_REQUEST_BODY_BYTES", value)
+
+    with pytest.raises(ValueError, match="MAX_REQUEST_BODY_BYTES"):
+        create_app()

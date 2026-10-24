@@ -180,7 +180,7 @@ Redis 队列执行异步维护任务（模块 `backend.tasks.worker` / `backend.
 
 **权限治理**：后端统一使用 `backend/auth/permissions.py` 的 `Permission` 常量；新增受保护路由必须挂 `require_permission(...)`，`tests/unit/api/test_route_permissions.py` 会扫描路由并拒绝缺失或未知权限。前端使用 `frontend/lib/permissions.ts` 与可复用 `<Can permission="...">` 门禁；它只负责 UX，安全边界始终在后端。
 
-**浏览器边界**：后端统一设置 CSP、X-Frame-Options、nosniff、Referrer Policy 与 Permissions Policy；HSTS 仅在 HTTPS 请求上启用。CORS 默认不开放跨域，如确需前后端跨域部署，使用逗号分隔的 `CORS_ALLOWED_ORIGINS=https://console.example.com` 显式配置；不接受 `*`、带路径或带账号信息的来源。
+**浏览器与请求边界**：后端统一设置 CSP、X-Frame-Options、nosniff、Referrer Policy 与 Permissions Policy；HSTS 仅在 HTTPS 请求上启用。CORS 默认不开放跨域，如确需前后端跨域部署，使用逗号分隔的 `CORS_ALLOWED_ORIGINS=https://console.example.com` 显式配置；不接受 `*`、带路径或带账号信息的来源。POST/PUT/PATCH 请求体默认限制为 1 MiB，可通过 `MAX_REQUEST_BODY_BYTES` 调整；应用同时校验 `Content-Length` 和实际接收字节，超限返回 413。
 
 **租户隔离（RLS）**：Alembic `010` 为 35 张业务表启用 `tenant_isolation` policy，应用通过 `set_config('app.tenant_id', ..., true)` 在每个事务设置租户上下文。当前迁移使用 `ENABLE` 而非 `FORCE`，本地表 owner 仍会绕过策略；**生产必须使用非 owner 的 `app_rw` 角色**，否则 RLS 不会生效。CI/测试用 `pg_read_all_data` / `pg_write_all_data` 非 owner 角色验证跨租户读取和写入拒绝。身份表（`users`/`roles`/`permissions`/`user_roles`）暂不启用 RLS，登录由身份服务单独处理。
 

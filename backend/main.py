@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from backend.api.cors import configure_cors
+from backend.api.request_limits import configure_request_body_limit
 from backend.api.schemas import ErrorResponse, HealthResponse
 from backend.api.security_headers import apply_security_headers
 from backend.api.routes.auth import router as auth_router
@@ -96,6 +97,7 @@ def create_app(
     app.state.knowledge_vector_store = knowledge_vector_store
     setup_tracing(app)
     configure_cors(app)
+    configure_request_body_limit(app)
 
     @app.middleware("http")
     async def observe_http_requests(request: Request, call_next):
