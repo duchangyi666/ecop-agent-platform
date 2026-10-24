@@ -28,6 +28,7 @@ from backend.api.schemas import (
     KnowledgeReindexResponse,
     KnowledgeSearchResponse,
 )
+from backend.auth.permissions import Permission
 from backend.database.unit_of_work import UnitOfWork
 from backend.rag.vector_store import KnowledgeVectorStore
 
@@ -40,7 +41,7 @@ async def search_knowledge(
     response: Response,
     limit: Annotated[int, Query(ge=1, le=20)] = 10,
     thread_id: Annotated[str | None, Query(max_length=120)] = None,
-    context: RequestContext = Depends(require_permission("knowledge.search")),
+    context: RequestContext = Depends(require_permission(Permission.KNOWLEDGE_SEARCH)),
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
     vector_store: KnowledgeVectorStore | None = Depends(get_knowledge_vector_store),
 ) -> KnowledgeSearchResponse:
@@ -87,7 +88,7 @@ async def search_knowledge(
 @router.post("/knowledge/documents", response_model=KnowledgeIngestResponse, status_code=201)
 async def ingest_knowledge_document(
     payload: KnowledgeIngestRequest,
-    context: RequestContext = Depends(require_permission("knowledge.ingest")),
+    context: RequestContext = Depends(require_permission(Permission.KNOWLEDGE_INGEST)),
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
     vector_store: KnowledgeVectorStore | None = Depends(get_knowledge_vector_store),
 ) -> KnowledgeIngestResponse:
@@ -103,7 +104,7 @@ async def ingest_knowledge_document(
 
 @router.get("/knowledge/documents", response_model=KnowledgeDocumentListResponse)
 async def list_knowledge_documents(
-    context: RequestContext = Depends(require_permission("knowledge.search")),
+    context: RequestContext = Depends(require_permission(Permission.KNOWLEDGE_SEARCH)),
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> KnowledgeDocumentListResponse:
@@ -134,7 +135,7 @@ async def list_knowledge_documents(
 @router.delete("/knowledge/documents/{document_id}", response_model=KnowledgeDeleteResponse)
 async def delete_knowledge_document(
     document_id: UUID,
-    context: RequestContext = Depends(require_permission("knowledge.delete")),
+    context: RequestContext = Depends(require_permission(Permission.KNOWLEDGE_DELETE)),
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
     vector_store: KnowledgeVectorStore | None = Depends(get_knowledge_vector_store),
 ) -> KnowledgeDeleteResponse:
@@ -173,7 +174,7 @@ async def delete_knowledge_document(
 
 @router.post("/knowledge/reindex", response_model=KnowledgeReindexResponse)
 async def reindex_knowledge_documents(
-    context: RequestContext = Depends(require_permission("knowledge.ingest")),
+    context: RequestContext = Depends(require_permission(Permission.KNOWLEDGE_INGEST)),
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
     vector_store: KnowledgeVectorStore | None = Depends(get_knowledge_vector_store),
 ) -> KnowledgeReindexResponse:

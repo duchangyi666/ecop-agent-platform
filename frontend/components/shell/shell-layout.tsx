@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useAuthStore } from "@/lib/auth-store";
+import { PERMISSIONS, type Permission } from "@/lib/permissions";
 import { useAuthorization } from "@/hooks/use-authorization";
 import { IdentityPanel } from "./identity-panel";
 import { IdentitySwitcher } from "./identity-switcher";
@@ -34,31 +35,31 @@ interface NavItem {
   href: string;
   label: string;
   icon: LucideIcon;
-  permission?: string;
+  permission?: Permission;
 }
 
 const GLOBAL_NAV: NavItem[] = [
-  { href: "/chat", label: "对话", icon: MessageSquare, permission: "customer.consult" },
+  { href: "/chat", label: "对话", icon: MessageSquare, permission: PERMISSIONS.CUSTOMER_CONSULT },
 ];
 
 const NAV: Record<string, NavItem[]> = {
   portal: [
     { href: "/portal", label: "总览", icon: LayoutDashboard },
-    { href: "/portal/consult", label: "提交问题", icon: MessageSquare, permission: "customer.consult" },
-    { href: "/portal/tickets", label: "我的工单", icon: TicketIcon, permission: "ticket.read" },
+    { href: "/portal/consult", label: "提交问题", icon: MessageSquare, permission: PERMISSIONS.CUSTOMER_CONSULT },
+    { href: "/portal/tickets", label: "我的工单", icon: TicketIcon, permission: PERMISSIONS.TICKET_READ },
   ],
   workspace: [
-    { href: "/workspace", label: "工单队列", icon: Inbox, permission: "ticket.read" },
-    { href: "/workspace/approvals", label: "审批", icon: ShieldCheck, permission: "approval.read" },
-    { href: "/workspace/knowledge", label: "知识库", icon: BookOpen, permission: "knowledge.search" },
-    { href: "/workspace/consult", label: "咨询调试", icon: Radio, permission: "customer.consult" },
+    { href: "/workspace", label: "工单队列", icon: Inbox, permission: PERMISSIONS.TICKET_READ },
+    { href: "/workspace/approvals", label: "审批", icon: ShieldCheck, permission: PERMISSIONS.APPROVAL_READ },
+    { href: "/workspace/knowledge", label: "知识库", icon: BookOpen, permission: PERMISSIONS.KNOWLEDGE_SEARCH },
+    { href: "/workspace/consult", label: "咨询调试", icon: Radio, permission: PERMISSIONS.CUSTOMER_CONSULT },
   ],
   admin: [
-    { href: "/admin", label: "总览", icon: LayoutDashboard, permission: "runtime.read" },
-    { href: "/admin/runtime", label: "Runtime", icon: Activity, permission: "runtime.read" },
-    { href: "/admin/evaluations", label: "评测", icon: Gauge, permission: "evaluation.read" },
-    { href: "/admin/knowledge", label: "知识库管理", icon: Database, permission: "knowledge.ingest" },
-    { href: "/admin/activity", label: "会话活动", icon: MessagesSquare, permission: "conversation.read" },
+    { href: "/admin", label: "总览", icon: LayoutDashboard, permission: PERMISSIONS.RUNTIME_READ },
+    { href: "/admin/runtime", label: "Runtime", icon: Activity, permission: PERMISSIONS.RUNTIME_READ },
+    { href: "/admin/evaluations", label: "评测", icon: Gauge, permission: PERMISSIONS.EVALUATION_READ },
+    { href: "/admin/knowledge", label: "知识库管理", icon: Database, permission: PERMISSIONS.KNOWLEDGE_INGEST },
+    { href: "/admin/activity", label: "会话活动", icon: MessagesSquare, permission: PERMISSIONS.CONVERSATION_READ },
   ],
 };
 

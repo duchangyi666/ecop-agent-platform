@@ -15,6 +15,7 @@ from backend.api.dependencies import (
     require_permission,
 )
 from backend.api.schemas import RefundCreateRequest, RefundResponse, WorkflowStatusResponse
+from backend.auth.permissions import Permission
 from backend.database.unit_of_work import UnitOfWork
 
 router = APIRouter(prefix="/api/v1", tags=["refunds"])
@@ -24,7 +25,7 @@ router = APIRouter(prefix="/api/v1", tags=["refunds"])
 async def create_refund(
     payload: RefundCreateRequest,
     response: Response,
-    context: RequestContext = Depends(require_permission("refund.request")),
+    context: RequestContext = Depends(require_permission(Permission.REFUND_REQUEST)),
     database_url: str = Depends(get_database_url),
 ) -> RefundResponse:
     request = RefundWorkflowRequest(
@@ -59,7 +60,7 @@ async def create_refund(
 @router.get("/workflows/{thread_id}", response_model=WorkflowStatusResponse)
 async def get_workflow_status(
     thread_id: str,
-    context: RequestContext = Depends(require_permission("refund.request")),
+    context: RequestContext = Depends(require_permission(Permission.REFUND_REQUEST)),
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
 ) -> WorkflowStatusResponse:
     async with UnitOfWork(session_factory, scope=context.scope) as uow:

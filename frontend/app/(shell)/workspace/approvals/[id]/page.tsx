@@ -5,12 +5,13 @@ import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { ArrowLeft, Check, X } from "lucide-react";
 import { useActOnApproval, useApproval } from "@/hooks/use-data";
-import { useAuthorization } from "@/hooks/use-authorization";
+import { Can } from "@/components/auth/can";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/form";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ErrorState, InlineLoader } from "@/components/ui/states";
+import { PERMISSIONS } from "@/lib/permissions";
 import { approvalAction, approvalRole, approvalStatus, formatDateTime, formatMoney, riskLevel } from "@/lib/format";
 
 export default function ApprovalDetailPage() {
@@ -18,7 +19,6 @@ export default function ApprovalDetailPage() {
   const router = useRouter();
   const approval = useApproval(params.id);
   const actOnApproval = useActOnApproval();
-  const { can, isLoading: authzLoading } = useAuthorization();
   const [reason, setReason] = useState("");
   const [decision, setDecision] = useState<"approve" | "reject" | null>(null);
 
@@ -30,7 +30,6 @@ export default function ApprovalDetailPage() {
   const detail = approval.data;
   const a = detail.approval;
   const isPending = a.status === "pending";
-  const canApprove = authzLoading || can("refund.approve");
 
   const submitDecision = () => {
     if (!decision) return;
@@ -122,64 +121,67 @@ export default function ApprovalDetailPage() {
         </Card>
       )}
 
-      {isPending && !canApprove && (
-        <Card>
-          <CardContent className="p-4 text-sm text-muted-foreground">
-            当前账号没有退款审批权限（refund.approve），只能查看审批信息。
-          </CardContent>
-        </Card>
-      )}
-
-      {isPending && canApprove && (
-        <Card>
-          <CardHeader>
-            <CardTitle>审批决策</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <Textarea
-              placeholder="审批备注（可选）"
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
-              disabled={actOnApproval.isPending}
-            />
-            {actOnApproval.isError && (
-              <p className="text-xs text-red-600">{actOnApproval.error.message}</p>
-            )}
-            <div className="flex gap-2">
-              <Button
-                variant="primary"
-                onClick={() => setDecision("approve")}
+      {isPending && (
+        <Can
+          permission={PERMISSIONS.REFUND_APPROVE}
+          fallback={
+            <Card>
+              <CardContent className="p-4 text-sm text-muted-foreground">
+                当前账号没有退款审批权限（refund.approve），只能查看审批信息。
+              </CardContent>
+            </Card>
+          }
+        >
+          <Card>
+            <CardHeader>
+              <CardTitle>审批决策</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Textarea
+                placeholder="审批备注（可选）"
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
                 disabled={actOnApproval.isPending}
-              >
-                <Check className="h-4 w-4" />
-                批准
-              </Button>
-              <Button
-                variant="danger"
-                onClick={() => setDecision("reject")}
-                disabled={actOnApproval.isPending}
-              >
-                <X className="h-4 w-4" />
-                拒绝
-              </Button>
-            </div>
-            {decision && (
-              <div className="rounded-md border border-border bg-muted/40 p-3">
-                <p className="mb-2 text-xs font-medium text-muted-foreground">
-                  确认{decision === "approve" ? "批准" : "拒绝"}该请求？
-                </p>
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={submitDecision} loading={actOnApproval.isPending}>
-                    确认
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setDecision(null)}>
-                    取消
-                  </Button>
-                </div>
+              />
+              {actOnApproval.isError && (
+                <p className="text-xs text-red-600">{actOnApproval.error.message}</p>
+              )}
+              <div className="flex gap-2">
+                <Button
+                  variant="primary"
+                  onClick={() => setDecision("approve")}
+                  disabled={actOnApproval.isPending}
+                >
+                  <Check className="h-4 w-4" />
+                  批准
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={() => setDecision("reject")}
+                  disabled={actOnApproval.isPending}
+                >
+                  <X className="h-4 w-4" />
+                  拒绝
+                </Button>
               </div>
-            )}
-          </CardContent>
-        </Card>
+              {decision && (
+                <div className="rounded-md border border-border bg-muted/40 p-3">
+                  <p className="mb-2 text-xs font-medium text-muted-foreground">
+                    确认{decision === "approve" ? "批准" : "拒绝"}该请求？
+                  </p>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={submitDecision} loading={actOnApproval.isPending}>
+                      确认
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setDecision(null)}>
+                      取消
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </Can>
       )}
     </div>
   );

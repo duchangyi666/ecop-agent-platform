@@ -25,6 +25,7 @@ from backend.api.schemas import (
     TicketPatchRequest,
     TicketResponse,
 )
+from backend.auth.permissions import Permission
 from backend.database.unit_of_work import UnitOfWork
 from backend.domain.ticket import TicketStatus
 
@@ -81,7 +82,7 @@ def _detail_response(request_id: str, ticket) -> TicketDetailResponse:
 async def create_ticket(
     payload: TicketCreateRequest,
     response: Response,
-    context: RequestContext = Depends(require_permission("ticket.create")),
+    context: RequestContext = Depends(require_permission(Permission.TICKET_CREATE)),
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
 ) -> TicketResponse:
     result = await TicketWorkflowService(session_factory).run(
@@ -126,7 +127,7 @@ async def create_ticket(
 
 @router.get("/tickets", response_model=TicketListResponse)
 async def list_tickets(
-    context: RequestContext = Depends(require_permission("ticket.read")),
+    context: RequestContext = Depends(require_permission(Permission.TICKET_READ)),
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
     status_filter: str | None = Query(default=None, alias="status", max_length=50),
     limit: int = Query(default=50, ge=1, le=200),
@@ -146,7 +147,7 @@ async def list_tickets(
 @router.get("/tickets/{ticket_id}", response_model=TicketDetailResponse)
 async def get_ticket(
     ticket_id: UUID,
-    context: RequestContext = Depends(require_permission("ticket.read")),
+    context: RequestContext = Depends(require_permission(Permission.TICKET_READ)),
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
 ) -> TicketDetailResponse:
     async with UnitOfWork(session_factory, scope=context.scope) as uow:
@@ -166,7 +167,7 @@ async def get_ticket(
 async def patch_ticket(
     ticket_id: UUID,
     payload: TicketPatchRequest,
-    context: RequestContext = Depends(require_permission("ticket.update")),
+    context: RequestContext = Depends(require_permission(Permission.TICKET_UPDATE)),
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
 ) -> TicketDetailResponse:
     has_update = any(

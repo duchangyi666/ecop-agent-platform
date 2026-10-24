@@ -19,6 +19,7 @@ from backend.api.schemas import (
     RuntimeTraceItem,
     RuntimeTraceListResponse,
 )
+from backend.auth.permissions import Permission
 from backend.database.unit_of_work import UnitOfWork
 
 router = APIRouter(prefix="/api/v1/runtime", tags=["runtime"])
@@ -39,7 +40,7 @@ def _trace_item(trace) -> RuntimeTraceItem:
 
 @router.get("/traces", response_model=RuntimeTraceListResponse)
 async def list_runtime_traces(
-    context: RequestContext = Depends(require_permission("runtime.read")),
+    context: RequestContext = Depends(require_permission(Permission.RUNTIME_READ)),
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
 ) -> RuntimeTraceListResponse:
     async with UnitOfWork(session_factory, scope=context.scope) as uow:
@@ -56,7 +57,7 @@ async def list_runtime_traces(
 @router.get("/traces/{trace_id}", response_model=RuntimeTraceDetailResponse)
 async def get_runtime_trace_detail(
     trace_id: UUID,
-    context: RequestContext = Depends(require_permission("runtime.read")),
+    context: RequestContext = Depends(require_permission(Permission.RUNTIME_READ)),
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
 ) -> RuntimeTraceDetailResponse:
     async with UnitOfWork(session_factory, scope=context.scope) as uow:
@@ -93,7 +94,7 @@ async def get_runtime_trace_detail(
 
 @router.get("/costs", response_model=RuntimeCostResponse)
 async def get_runtime_costs(
-    context: RequestContext = Depends(require_permission("runtime.read")),
+    context: RequestContext = Depends(require_permission(Permission.RUNTIME_READ)),
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
 ) -> RuntimeCostResponse:
     async with UnitOfWork(session_factory, scope=context.scope) as uow:
@@ -110,7 +111,7 @@ async def get_runtime_costs(
 
 @router.get("/agents", response_model=RuntimeAgentListResponse)
 async def list_runtime_agents(
-    context: RequestContext = Depends(require_permission("runtime.read")),
+    context: RequestContext = Depends(require_permission(Permission.RUNTIME_READ)),
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
 ) -> RuntimeAgentListResponse:
     async with UnitOfWork(session_factory, scope=context.scope) as uow:

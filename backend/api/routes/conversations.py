@@ -18,6 +18,7 @@ from backend.api.schemas import (
     ConversationMessageCreateRequest,
     ConversationMessageItem,
 )
+from backend.auth.permissions import Permission
 from backend.database.unit_of_work import UnitOfWork
 
 router = APIRouter(prefix="/api/v1/conversations", tags=["conversations"])
@@ -62,7 +63,7 @@ def _detail_response(request_id: str, conversation) -> ConversationDetailRespons
 @router.post("", response_model=ConversationDetailResponse, status_code=status.HTTP_201_CREATED)
 async def create_conversation(
     payload: ConversationCreateRequest,
-    context: RequestContext = Depends(require_permission("conversation.create")),
+    context: RequestContext = Depends(require_permission(Permission.CONVERSATION_CREATE)),
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
 ) -> ConversationDetailResponse:
     if payload.customer_id is None and payload.user_id is None:
@@ -98,7 +99,7 @@ async def create_conversation(
 
 @router.get("", response_model=ConversationListResponse)
 async def list_conversations(
-    context: RequestContext = Depends(require_permission("conversation.read")),
+    context: RequestContext = Depends(require_permission(Permission.CONVERSATION_READ)),
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
 ) -> ConversationListResponse:
     async with UnitOfWork(session_factory, scope=context.scope) as uow:
@@ -115,7 +116,7 @@ async def list_conversations(
 @router.get("/{conversation_id}", response_model=ConversationDetailResponse)
 async def get_conversation(
     conversation_id: UUID,
-    context: RequestContext = Depends(require_permission("conversation.read")),
+    context: RequestContext = Depends(require_permission(Permission.CONVERSATION_READ)),
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
 ) -> ConversationDetailResponse:
     async with UnitOfWork(session_factory, scope=context.scope) as uow:
@@ -135,7 +136,7 @@ async def get_conversation(
 async def append_conversation_message(
     conversation_id: UUID,
     payload: ConversationMessageCreateRequest,
-    context: RequestContext = Depends(require_permission("conversation.write")),
+    context: RequestContext = Depends(require_permission(Permission.CONVERSATION_WRITE)),
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
 ) -> ConversationDetailResponse:
     async with UnitOfWork(session_factory, scope=context.scope) as uow:

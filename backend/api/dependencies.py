@@ -142,6 +142,8 @@ def require_permission(permission_code: str):
                 )
         return context
 
+    # Exposed for route-audit tests and future permission matrix tooling.
+    dependency.permission_code = permission_code  # type: ignore[attr-defined]
     return dependency
 
 

@@ -17,6 +17,7 @@ from backend.api.schemas import (
     EvaluationRunRequest,
     EvaluationRunResponse,
 )
+from backend.auth.permissions import Permission
 from backend.database.unit_of_work import UnitOfWork
 from backend.evaluation.agent_runner import AgentEvaluationRunner
 from backend.evaluation.runner import EvaluationRunner
@@ -31,7 +32,7 @@ router = APIRouter(prefix="/api/v1/evaluations", tags=["evaluations"])
 
 @router.get("", response_model=EvaluationRunListResponse)
 async def list_evaluation_runs(
-    context: RequestContext = Depends(require_permission("evaluation.read")),
+    context: RequestContext = Depends(require_permission(Permission.EVALUATION_READ)),
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
 ) -> EvaluationRunListResponse:
     async with UnitOfWork(session_factory, scope=context.scope) as uow:
@@ -58,7 +59,7 @@ async def list_evaluation_runs(
 @router.post("/run", response_model=EvaluationRunResponse)
 async def run_retrieval_evaluation(
     payload: EvaluationRunRequest,
-    context: RequestContext = Depends(require_permission("evaluation.run")),
+    context: RequestContext = Depends(require_permission(Permission.EVALUATION_RUN)),
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
     vector_store: KnowledgeVectorStore | None = Depends(get_knowledge_vector_store),
 ) -> EvaluationRunResponse:
@@ -84,7 +85,7 @@ async def run_retrieval_evaluation(
 @router.post("/run-agent", response_model=EvaluationRunResponse)
 async def run_agent_evaluation(
     payload: EvaluationRunAgentRequest,
-    context: RequestContext = Depends(require_permission("evaluation.run")),
+    context: RequestContext = Depends(require_permission(Permission.EVALUATION_RUN)),
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
     vector_store: KnowledgeVectorStore | None = Depends(get_knowledge_vector_store),
     gateway: ModelGateway = Depends(get_app_model_gateway),

@@ -14,6 +14,7 @@ from backend.agent.consultation_workflow import (
     CustomerConsultationWorkflowRequest,
 )
 from backend.agent.state import ConversationMessage, create_agent_state
+from backend.auth.permissions import Permission
 from backend.api.dependencies import (
     RequestContext,
     get_app_model_gateway,
@@ -41,7 +42,7 @@ def _history_messages(history) -> list[ConversationMessage] | None:
 @router.post("/customer-consultations/stream")
 async def stream_customer_consultation(
     payload: CustomerConsultationRequest,
-    context: RequestContext = Depends(require_permission("customer.consult")),
+    context: RequestContext = Depends(require_permission(Permission.CUSTOMER_CONSULT)),
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
     model_gateway: ModelGateway = Depends(get_app_model_gateway),
     vector_store: KnowledgeVectorStore | None = Depends(get_knowledge_vector_store),
@@ -128,7 +129,7 @@ async def stream_customer_consultation(
 async def create_customer_consultation(
     payload: CustomerConsultationRequest,
     response: Response,
-    context: RequestContext = Depends(require_permission("customer.consult")),
+    context: RequestContext = Depends(require_permission(Permission.CUSTOMER_CONSULT)),
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
     model_gateway: ModelGateway = Depends(get_app_model_gateway),
     vector_store: KnowledgeVectorStore | None = Depends(get_knowledge_vector_store),

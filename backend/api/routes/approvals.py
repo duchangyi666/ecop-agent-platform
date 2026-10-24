@@ -20,6 +20,7 @@ from backend.api.schemas import (
     ApprovalListResponse,
     RefundResponse,
 )
+from backend.auth.permissions import Permission
 from backend.database.unit_of_work import UnitOfWork
 
 router = APIRouter(prefix="/api/v1", tags=["approvals"])
@@ -55,7 +56,7 @@ def _action_item(action) -> ApprovalActionItem:
 
 @router.get("/approvals", response_model=ApprovalListResponse)
 async def list_approvals(
-    context: RequestContext = Depends(require_permission("approval.read")),
+    context: RequestContext = Depends(require_permission(Permission.APPROVAL_READ)),
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
     status_filter: str | None = Query(default=None, alias="status", max_length=50),
     limit: int = Query(default=50, ge=1, le=200),
@@ -75,7 +76,7 @@ async def list_approvals(
 @router.get("/approvals/{approval_request_id}", response_model=ApprovalDetailResponse)
 async def get_approval(
     approval_request_id: UUID,
-    context: RequestContext = Depends(require_permission("approval.read")),
+    context: RequestContext = Depends(require_permission(Permission.APPROVAL_READ)),
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
 ) -> ApprovalDetailResponse:
     async with UnitOfWork(session_factory, scope=context.scope) as uow:
@@ -99,7 +100,7 @@ async def get_approval(
 async def act_on_approval(
     approval_request_id: UUID,
     payload: ApprovalActionRequest,
-    context: RequestContext = Depends(require_permission("refund.approve")),
+    context: RequestContext = Depends(require_permission(Permission.REFUND_APPROVE)),
     database_url: str = Depends(get_database_url),
 ) -> RefundResponse:
     result = await resume_refund_after_approval(
