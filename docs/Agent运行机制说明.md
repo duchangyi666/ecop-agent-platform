@@ -105,8 +105,9 @@ sequenceDiagram
 `backend/api/routes/customer_service.py:41` / `:127`：
 
 1. `require_permission("customer.consult")`：
-   - 优先解析 `Authorization: Bearer <JWT>`；
-   - 开发模式允许 `X-Tenant-Id` + `X-Actor-Id` + `X-Actor-Type` 请求头；
+   - `AUTH_MODE=dev`：优先解析 `Authorization: Bearer <JWT>`，否则允许 `X-Tenant-Id` + `X-Actor-Id` + `X-Actor-Type` 开发 Header；
+   - `AUTH_MODE=jwt-only` / `oidc`：只接受 Bearer，开发 Header 直接 401；
+   - OIDC 模式下浏览器通过 `/login` 完成 Authorization Code + PKCE，后端 `/api/v1/auth/oidc/exchange` 校验 ID Token 后签发平台 JWT；
    - 校验用户存在、状态为 active、拥有对应权限。
 2. `create_agent_state(...)`：把 `payload.history` 转成 `ConversationMessage` 列表，再追加当前用户消息。
 3. 构造 `ConsultationKnowledgeRetriever`（带 Milvus store + reranker）与 `MemoryService`。
@@ -500,7 +501,7 @@ UnitOfWork 仓储写库 + 审计 + ToolExecution
 8. **BGE-M3 / Reranker**：模型文件不存在，当前是确定性离线 Embedding + 确定性排序。
 9. **成本统计**：Token 已写回 `runtime_traces`（新生成的咨询 Trace 有输入/输出 Token）；但未配置计价规则，成本显示 `—`，不伪造金额。
 10. **真实资金**：退款完成只代表本地申请/审批/审计落库，不代表第三方到账；Billing/CRM 等仍是 Mock。
-11. **认证**：本地 JWT + 开发 Header，不是 OAuth/SSO。
+11. **认证**：本地已实现 OIDC（Dex）+ `AUTH_MODE=dev/jwt-only/oidc`；`oidc` 模式禁用开发 Header 与 `/auth/tokens`。生产仍需替换为企业 IdP，并把前端 JWT 存储升级为 HttpOnly Cookie + CSRF 防护，同时补齐全路由 RBAC 矩阵。
 12. **Redis/Worker**：未启动；只影响记忆过期等异步维护，不影响聊天主链路。
 13. **SSE 事件 `thread_id`**：`evidence`/`action` 用 `request_id`，`done` 用业务 `thread_id`，不一致。
 
@@ -537,7 +538,9 @@ curl.exe -N -X POST http://127.0.0.1:8080/api/v1/customer-consultations/stream `
 ### 12.2 前端页面
 
 - `/` → 重定向 `/chat`
-- `/identity` → 开发身份选择器（租户 + 用户）
+- `/login` → 企业账号登录（OIDC Authorization Code + PKCE）
+- `/auth/callback` → OIDC 回调，后端换取会话后进入 `/chat`
+- `/identity` → 开发身份选择器（仅 `AUTH_MODE=dev` 可用）
 - `/chat`、`/workspace`、`/admin`、`/portal/consult` 均返回 200
 
 ### 12.3 常用后端接口
