@@ -12,7 +12,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from backend.api.cors import configure_cors
 from backend.api.schemas import ErrorResponse, HealthResponse
+from backend.api.security_headers import apply_security_headers
 from backend.api.routes.auth import router as auth_router
 from backend.api.routes.approvals import router as approvals_router
 from backend.api.routes.conversations import router as conversations_router
@@ -93,6 +95,7 @@ def create_app(
         knowledge_vector_store = create_knowledge_vector_store()
     app.state.knowledge_vector_store = knowledge_vector_store
     setup_tracing(app)
+    configure_cors(app)
 
     @app.middleware("http")
     async def observe_http_requests(request: Request, call_next):
@@ -119,6 +122,7 @@ def create_app(
             latency_seconds=latency_ms / 1000,
         )
         response.headers["X-Request-Id"] = request_id
+        apply_security_headers(response, is_https=request.url.scheme == "https")
         logger.info(
             "http_request",
             extra={
