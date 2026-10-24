@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { ArrowLeft, Check, X } from "lucide-react";
 import { useActOnApproval, useApproval } from "@/hooks/use-data";
+import { useAuthorization } from "@/hooks/use-authorization";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/form";
@@ -17,6 +18,7 @@ export default function ApprovalDetailPage() {
   const router = useRouter();
   const approval = useApproval(params.id);
   const actOnApproval = useActOnApproval();
+  const { can, isLoading: authzLoading } = useAuthorization();
   const [reason, setReason] = useState("");
   const [decision, setDecision] = useState<"approve" | "reject" | null>(null);
 
@@ -28,6 +30,7 @@ export default function ApprovalDetailPage() {
   const detail = approval.data;
   const a = detail.approval;
   const isPending = a.status === "pending";
+  const canApprove = authzLoading || can("refund.approve");
 
   const submitDecision = () => {
     if (!decision) return;
@@ -119,7 +122,15 @@ export default function ApprovalDetailPage() {
         </Card>
       )}
 
-      {isPending && (
+      {isPending && !canApprove && (
+        <Card>
+          <CardContent className="p-4 text-sm text-muted-foreground">
+            当前账号没有退款审批权限（refund.approve），只能查看审批信息。
+          </CardContent>
+        </Card>
+      )}
+
+      {isPending && canApprove && (
         <Card>
           <CardHeader>
             <CardTitle>审批决策</CardTitle>

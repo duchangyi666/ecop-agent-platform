@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useAuthStore } from "@/lib/auth-store";
+import { useAuthorization } from "@/hooks/use-authorization";
 import { IdentityPanel } from "./identity-panel";
 import { IdentitySwitcher } from "./identity-switcher";
 import { ThemeToggle } from "./theme-toggle";
@@ -29,34 +30,42 @@ const PORTALS: Array<{ key: string; href: string; label: string }> = [
   { key: "admin", href: "/admin", label: "管理控制台" },
 ];
 
-const GLOBAL_NAV: Array<{ href: string; label: string; icon: LucideIcon }> = [
-  { href: "/chat", label: "对话", icon: MessageSquare },
+interface NavItem {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  permission?: string;
+}
+
+const GLOBAL_NAV: NavItem[] = [
+  { href: "/chat", label: "对话", icon: MessageSquare, permission: "customer.consult" },
 ];
 
-const NAV: Record<string, Array<{ href: string; label: string; icon: LucideIcon }>> = {
+const NAV: Record<string, NavItem[]> = {
   portal: [
     { href: "/portal", label: "总览", icon: LayoutDashboard },
-    { href: "/portal/consult", label: "提交问题", icon: MessageSquare },
-    { href: "/portal/tickets", label: "我的工单", icon: TicketIcon },
+    { href: "/portal/consult", label: "提交问题", icon: MessageSquare, permission: "customer.consult" },
+    { href: "/portal/tickets", label: "我的工单", icon: TicketIcon, permission: "ticket.read" },
   ],
   workspace: [
-    { href: "/workspace", label: "工单队列", icon: Inbox },
-    { href: "/workspace/approvals", label: "审批", icon: ShieldCheck },
-    { href: "/workspace/knowledge", label: "知识库", icon: BookOpen },
-    { href: "/workspace/consult", label: "咨询调试", icon: Radio },
+    { href: "/workspace", label: "工单队列", icon: Inbox, permission: "ticket.read" },
+    { href: "/workspace/approvals", label: "审批", icon: ShieldCheck, permission: "approval.read" },
+    { href: "/workspace/knowledge", label: "知识库", icon: BookOpen, permission: "knowledge.search" },
+    { href: "/workspace/consult", label: "咨询调试", icon: Radio, permission: "customer.consult" },
   ],
   admin: [
-    { href: "/admin", label: "总览", icon: LayoutDashboard },
-    { href: "/admin/runtime", label: "Runtime", icon: Activity },
-    { href: "/admin/evaluations", label: "评测", icon: Gauge },
-    { href: "/admin/knowledge", label: "知识库管理", icon: Database },
-    { href: "/admin/activity", label: "会话活动", icon: MessagesSquare },
+    { href: "/admin", label: "总览", icon: LayoutDashboard, permission: "runtime.read" },
+    { href: "/admin/runtime", label: "Runtime", icon: Activity, permission: "runtime.read" },
+    { href: "/admin/evaluations", label: "评测", icon: Gauge, permission: "evaluation.read" },
+    { href: "/admin/knowledge", label: "知识库管理", icon: Database, permission: "knowledge.ingest" },
+    { href: "/admin/activity", label: "会话活动", icon: MessagesSquare, permission: "conversation.read" },
   ],
 };
 
 export function ShellLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const identity = useAuthStore((state) => state.identity);
+  const { can, isLoading: authzLoading, error: authzError } = useAuthorization();
   // SSR always renders the loader (no localStorage), so gate the real shell
   // behind client mount to avoid hydration mismatch. A missing identity is
   // then shown as an inline picker instead of navigating — router.replace
@@ -85,6 +94,9 @@ export function ShellLayout({ children }: { children: ReactNode }) {
   const isActive = (href: string) =>
     href === "/" ? pathname === href : pathname === href || pathname.startsWith(href + "/");
 
+  const canSee = (item: NavItem) =>
+    !item.permission || authzLoading || Boolean(authzError) || can(item.permission);
+
   return (
     <div className="flex h-screen overflow-hidden">
       <aside className="flex w-56 shrink-0 flex-col border-r border-border bg-card">
@@ -98,7 +110,7 @@ export function ShellLayout({ children }: { children: ReactNode }) {
           </div>
         </div>
         <nav className="flex-1 space-y-0.5 overflow-auto p-2">
-          {[...GLOBAL_NAV, ...navItems].map((item) => {
+          {[...GLOBAL_NAV, ...navItems].filter(canSee).map((item) => {
             const active = isActive(item.href);
             return (
               <Link

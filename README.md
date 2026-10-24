@@ -180,6 +180,15 @@ Redis 队列执行异步维护任务（模块 `backend.tasks.worker` / `backend.
 
 **租户隔离（RLS）**：Alembic `010` 为 35 张业务表启用 `tenant_isolation` policy，应用通过 `set_config('app.tenant_id', ..., true)` 在每个事务设置租户上下文。当前迁移使用 `ENABLE` 而非 `FORCE`，本地表 owner 仍会绕过策略；**生产必须使用非 owner 的 `app_rw` 角色**，否则 RLS 不会生效。CI/测试用 `pg_read_all_data` / `pg_write_all_data` 非 owner 角色验证跨租户读取和写入拒绝。身份表（`users`/`roles`/`permissions`/`user_roles`）暂不启用 RLS，登录由身份服务单独处理。
 
+本地体验 RLS 强制模式：
+
+```powershell
+Get-Content infra\postgres\roles.sql -Raw | docker exec -i ecop-postgres-validation psql -U app -d enterprise_customer_operations
+docker exec ecop-postgres-validation psql -U app -d enterprise_customer_operations -c "ALTER ROLE app_rw PASSWORD 'app_rw_dev_2026';"
+$env:DATABASE_URL = "postgresql+asyncpg://app_rw:app_rw_dev_2026@localhost:54330/enterprise_customer_operations"
+.\scripts\run_demo_backend.ps1
+```
+
 ## 🔌 HTTP API 与流式事件
 
 后端入口为 `backend.main:app`，主要接口包括：
