@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+
 from fastapi.testclient import TestClient
 import pytest
 
+from backend.api.request_timeout import is_timeout_exempt_path
 from backend.api.security_headers import CONTENT_SECURITY_POLICY, HSTS_HEADER
 from backend.main import create_app
 from backend.llm.contracts import ResponseDraft
@@ -176,4 +179,63 @@ def test_request_body_limit_rejects_invalid_configuration(monkeypatch, value: st
     monkeypatch.setenv("MAX_REQUEST_BODY_BYTES", value)
 
     with pytest.raises(ValueError, match="MAX_REQUEST_BODY_BYTES"):
+        create_app()
+
+
+def test_request_timeout_returns_structured_gateway_timeout(monkeypatch) -> None:
+    monkeypatch.setenv("REQUEST_TIMEOUT_SECONDS", "0.01")
+    cancellation_observed = []
+
+    async def slow_readiness_report():
+        try:
+            await asyncio.sleep(0.05)
+            return True, {}
+        finally:
+            cancellation_observed.append(True)
+
+    monkeypatch.setattr("backend.main.readiness_report", slow_readiness_report)
+
+    response = TestClient(create_app()).get(
+        "/readyz",
+        headers={"X-Request-Id": "timeout-test"},
+    )
+
+    assert response.status_code == 504
+    assert response.json() == {
+        "error": {
+            "code": "request_timeout",
+            "message": "request exceeded the 0.01 second processing deadline",
+            "request_id": "timeout-test",
+        }
+    }
+    assert response.headers["x-request-id"] == "timeout-test"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert cancellation_observed == [True]
+
+
+def test_request_timeout_allows_fast_requests(monkeypatch) -> None:
+    monkeypatch.setenv("REQUEST_TIMEOUT_SECONDS", "1")
+
+    response = TestClient(create_app()).get("/healthz")
+
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "path",
+    (
+        "/api/v1/customer-consultations/stream",
+        "/mcp/kb",
+        "/mcp/web-search/session",
+    ),
+)
+def test_request_timeout_exempts_streaming_paths(path: str) -> None:
+    assert is_timeout_exempt_path(path)
+
+
+@pytest.mark.parametrize("value", ("0", "-1", "nan", "inf", "not-a-number"))
+def test_request_timeout_rejects_invalid_configuration(monkeypatch, value: str) -> None:
+    monkeypatch.setenv("REQUEST_TIMEOUT_SECONDS", value)
+
+    with pytest.raises(ValueError, match="REQUEST_TIMEOUT_SECONDS"):
         create_app()
