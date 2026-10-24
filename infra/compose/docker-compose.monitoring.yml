@@ -10,6 +10,28 @@ services:
       - ../prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    depends_on:
+      - alertmanager
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: ecop-alertmanager-local
+    restart: unless-stopped
+    ports:
+      - "19093:9093"
+    volumes:
+      - ../alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.60
+    container_name: ecop-jaeger-local
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
 
   grafana:
     image: grafana/grafana:11.1.0
@@ -25,3 +47,4 @@ services:
       - ../grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - prometheus
+      - jaeger

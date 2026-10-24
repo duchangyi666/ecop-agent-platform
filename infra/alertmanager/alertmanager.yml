@@ -1,0 +1,13 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: local-console
+  group_by: [alertname]
+  group_wait: 10s
+  group_interval: 30s
+  repeat_interval: 1h
+
+receivers:
+  # Local UI/API only. Configure email/webhook/feishu/slack here for staging/prod.
+  - name: local-console
