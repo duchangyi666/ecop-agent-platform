@@ -27,5 +27,8 @@
     "playwright": "^1.62.1",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.7.0"
+  },
+  "overrides": {
+    "postcss": "^8.5.31"
   }
 }
