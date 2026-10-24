@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from backend.api.cors import configure_cors
+from backend.api.rate_limit import configure_rate_limit
 from backend.api.request_limits import configure_request_body_limit
 from backend.api.request_timeout import configure_request_timeout
 from backend.api.schemas import ErrorResponse, HealthResponse
@@ -100,6 +101,7 @@ def create_app(
     configure_cors(app)
     configure_request_body_limit(app)
     configure_request_timeout(app)
+    configure_rate_limit(app)
 
     @app.middleware("http")
     async def observe_http_requests(request: Request, call_next):

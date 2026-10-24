@@ -182,6 +182,8 @@ Redis 队列执行异步维护任务（模块 `backend.tasks.worker` / `backend.
 
 **浏览器与请求边界**：后端统一设置 CSP、X-Frame-Options、nosniff、Referrer Policy 与 Permissions Policy；HSTS 仅在 HTTPS 请求上启用。CORS 默认不开放跨域，如确需前后端跨域部署，使用逗号分隔的 `CORS_ALLOWED_ORIGINS=https://console.example.com` 显式配置；不接受 `*`、带路径或带账号信息的来源。POST/PUT/PATCH 请求体默认限制为 1 MiB，可通过 `MAX_REQUEST_BODY_BYTES` 调整；应用同时校验 `Content-Length` 和实际接收字节，超限返回 413。普通 HTTP 请求默认具有 120 秒处理截止时间，可通过 `REQUEST_TIMEOUT_SECONDS` 调整，超时返回结构化 504；SSE 客服流与 `/mcp/*` 长连接不受该截止时间影响，应由各自的会话和下游调用预算治理。
 
+应用层默认按实际连接客户端 IP 执行每 60 秒 120 次请求的固定窗口限流，可通过 `RATE_LIMIT_REQUESTS`、`RATE_LIMIT_WINDOW_SECONDS` 和 `RATE_LIMIT_MAX_CLIENTS` 调整；超限返回结构化 429 以及 `Retry-After`、`RateLimit-*` 响应头。限流不信任客户端提供的 `X-Forwarded-For`，健康检查、就绪检查、指标抓取和 CORS 预检不计数。该内存限流仅提供单实例防滥用保护；多副本生产部署必须在可信反向代理/API Gateway 或共享 Redis 中统一解析真实来源并实施租户配额。
+
 **租户隔离（RLS）**：Alembic `010` 为 35 张业务表启用 `tenant_isolation` policy，应用通过 `set_config('app.tenant_id', ..., true)` 在每个事务设置租户上下文。当前迁移使用 `ENABLE` 而非 `FORCE`，本地表 owner 仍会绕过策略；**生产必须使用非 owner 的 `app_rw` 角色**，否则 RLS 不会生效。CI/测试用 `pg_read_all_data` / `pg_write_all_data` 非 owner 角色验证跨租户读取和写入拒绝。身份表（`users`/`roles`/`permissions`/`user_roles`）暂不启用 RLS，登录由身份服务单独处理。
 
 本地体验 RLS 强制模式：
