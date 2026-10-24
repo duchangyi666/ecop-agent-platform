@@ -2,8 +2,9 @@
 useDefault = true
 
 [allowlist]
-description = "Local-only Dex client secret and documented placeholders"
+description = "Local-only Dex secret, placeholders, and test fixtures with fake keys"
 paths = [
   '''infra/dex/config.yaml''',
   '''.env.example''',
+  '''tests/''',
 ]
