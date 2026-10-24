@@ -14,7 +14,11 @@ from backend.auth.tokens import create_access_token
 from backend.database.base import TenantScope
 from backend.database.models.identity import Tenant, User
 from backend.database.unit_of_work import UnitOfWork
-from backend.api.dependencies import get_session_factory_dependency
+from backend.api.dependencies import (
+    RequestContext,
+    get_request_context,
+    get_session_factory_dependency,
+)
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -61,6 +65,14 @@ class OIDCExchangeResponse(AuthTokenResponse):
     user_id: UUID
     display_name: str
     actor_type: str = "user"
+
+
+class AuthMeResponse(BaseModel):
+    tenant_id: UUID
+    user_id: UUID
+    display_name: str
+    roles: list[str]
+    permissions: list[str]
 
 
 @router.post("/tokens", response_model=AuthTokenResponse)
@@ -227,7 +239,39 @@ async def exchange_oidc_code(
     )
 
 
+@router.get("/me", response_model=AuthMeResponse)
+async def get_current_identity(
+    context: RequestContext = Depends(get_request_context),
+    session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
+) -> AuthMeResponse:
+    actor_id = context.scope.actor_id
+    if actor_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "tenant_identity_invalid", "message": "tenant identity is invalid"},
+        )
+    async with UnitOfWork(session_factory, scope=context.scope) as uow:
+        user = await uow.identity.get_user_in_tenant(scope=context.scope, user_id=actor_id)
+        if user is None or user.status != "active":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"code": "tenant_identity_invalid", "message": "tenant identity is invalid"},
+            )
+        roles = await uow.identity.list_user_roles(scope=context.scope, user_id=actor_id)
+        permissions = await uow.identity.list_user_permissions(
+            scope=context.scope, user_id=actor_id
+        )
+    return AuthMeResponse(
+        tenant_id=context.scope.tenant_id,
+        user_id=actor_id,
+        display_name=user.display_name,
+        roles=[role.code for role in roles],
+        permissions=permissions,
+    )
+
+
 __all__ = [
+    "AuthMeResponse",
     "AuthModeResponse",
     "AuthTokenRequest",
     "AuthTokenResponse",

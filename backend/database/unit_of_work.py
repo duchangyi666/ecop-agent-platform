@@ -12,6 +12,7 @@ from backend.database.repositories.identity import IdentityRepository
 from backend.database.repositories.knowledge import KnowledgeRepository
 from backend.database.repositories.runtime import RuntimeRepository
 from backend.database.repositories.support import SupportRepository
+from backend.database.tenant_context import set_tenant_context
 
 
 class UnitOfWork:
@@ -34,6 +35,8 @@ class UnitOfWork:
         self.runtime = RuntimeRepository(self.session)
 
     async def __aenter__(self) -> "UnitOfWork":
+        if self.scope is not None:
+            await set_tenant_context(self.session, self.scope.tenant_id)
         return self
 
     async def commit(self) -> None:

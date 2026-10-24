@@ -75,9 +75,12 @@ async def test_negative_vector_score_is_clamped(monkeypatch) -> None:
 
     class _FakeSession:
         async def __aenter__(self):
-            return object()
+            return self
 
         async def __aexit__(self, *args):
+            return None
+
+        async def execute(self, *args, **kwargs):
             return None
 
     monkeypatch.setattr("backend.rag.retriever.KnowledgeRepository", _FakeRepository)

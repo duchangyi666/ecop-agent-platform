@@ -60,6 +60,32 @@ class IdentityRepository(TenantScopedRepository):
         )
         return await self.session.scalar(statement) is not None
 
+    async def list_user_permissions(
+        self, *, scope: TenantScope, user_id: UUID
+    ) -> list[str]:
+        statement = (
+            select(Permission.code)
+            .join(Role, Role.id == Permission.role_id)
+            .join(UserRole, UserRole.role_id == Role.id)
+            .join(User, User.id == UserRole.user_id)
+            .where(
+                UserRole.user_id == user_id,
+                UserRole.tenant_id == scope.tenant_id,
+                UserRole.deleted_at.is_(None),
+                User.tenant_id == scope.tenant_id,
+                User.deleted_at.is_(None),
+                Role.tenant_id == scope.tenant_id,
+                Role.deleted_at.is_(None),
+                Role.status == "active",
+                Permission.tenant_id == scope.tenant_id,
+                Permission.deleted_at.is_(None),
+                Permission.status == "active",
+            )
+            .distinct()
+            .order_by(Permission.code)
+        )
+        return list(await self.session.scalars(statement))
+
     async def get_customer_for_user(self, *, scope: TenantScope, user_id: UUID) -> UUID | None:
         statement = (
             select(CustomerContact.customer_id)

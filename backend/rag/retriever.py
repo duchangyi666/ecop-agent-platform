@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from backend.agent.state import KnowledgeEvidence
 from backend.database.base import TenantScope
 from backend.database.repositories.knowledge import KnowledgeRepository
+from backend.database.tenant_context import set_tenant_context
 from backend.rag.hybrid import merge_evidence
 from backend.rag.reranker import KnowledgeReranker
 from backend.rag.vector_store import KnowledgeVectorStore
@@ -85,6 +86,7 @@ class ConsultationKnowledgeRetriever:
         if not hits:
             return postgres_evidence
         async with self.session_factory() as session:
+            await set_tenant_context(session, scope.tenant_id)
             repository = KnowledgeRepository(session)
             documents = await repository.get_documents_by_ids(
                 scope=scope,
@@ -119,6 +121,7 @@ class ConsultationKnowledgeRetriever:
         limit: int,
     ) -> list[KnowledgeEvidence]:
         async with self.session_factory() as session:
+            await set_tenant_context(session, scope.tenant_id)
             repository = KnowledgeRepository(session)
             documents = await repository.search_documents(
                 scope=scope,

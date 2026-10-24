@@ -32,7 +32,8 @@ def test_readme_documents_model_gateway_secret_and_offline_boundaries() -> None:
     assert "knowledge_evidence_count" in readme
     assert "customer-consultations/stream" in readme
     assert "JWT_SECRET" in readme
-    assert "正式 OAuth/SSO" in readme
+    assert "AUTH_MODE" in readme
+    assert "OIDC" in readme
     assert "本地前端控制台" in readme
     assert "evaluations/run" in readme
     assert "Recall@K" in readme

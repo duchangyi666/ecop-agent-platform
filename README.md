@@ -178,6 +178,8 @@ Redis 队列执行异步维护任务（模块 `backend.tasks.worker` / `backend.
 
 `AUTH_MODE=oidc` 已在本地 Dex 上验证；生产需把 issuer/client 换为企业 IdP（Keycloak / Entra ID / Auth0），并把浏览器侧 JWT 存储升级为 HttpOnly Cookie + CSRF 防护。开发 Header 只用于本地和集成测试，不代表生产边界。客户咨询需要 `customer.consult`，知识摄取需要 `knowledge.ingest`，Runtime 查询需要 `runtime.read`；其余接口同样执行租户与权限校验。
 
+**租户隔离（RLS）**：Alembic `010` 为 35 张业务表启用 `tenant_isolation` policy，应用通过 `set_config('app.tenant_id', ..., true)` 在每个事务设置租户上下文。当前迁移使用 `ENABLE` 而非 `FORCE`，本地表 owner 仍会绕过策略；**生产必须使用非 owner 的 `app_rw` 角色**，否则 RLS 不会生效。CI/测试用 `pg_read_all_data` / `pg_write_all_data` 非 owner 角色验证跨租户读取和写入拒绝。身份表（`users`/`roles`/`permissions`/`user_roles`）暂不启用 RLS，登录由身份服务单独处理。
+
 ## 🔌 HTTP API 与流式事件
 
 后端入口为 `backend.main:app`，主要接口包括：

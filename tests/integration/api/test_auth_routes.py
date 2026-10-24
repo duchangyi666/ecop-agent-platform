@@ -80,6 +80,23 @@ async def test_api_rejects_expired_bearer_token(
 
 
 @pytest.mark.asyncio
+async def test_auth_me_returns_roles_and_permissions(
+    knowledge_api_client,
+    api_headers,
+    tenant_a,
+    tenant_a_user,
+) -> None:
+    response = knowledge_api_client.get("/api/v1/auth/me", headers=api_headers)
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["tenant_id"] == str(tenant_a.id)
+    assert payload["user_id"] == str(tenant_a_user.id)
+    assert "knowledge.search" in payload["permissions"]
+    assert payload["roles"]
+
+
+@pytest.mark.asyncio
 async def test_oidc_mode_disables_dev_headers_and_local_token_issuance(
     knowledge_api_client,
     tenant_a,
