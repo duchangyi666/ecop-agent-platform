@@ -194,7 +194,8 @@ $env:DATABASE_URL = "postgresql+asyncpg://app_rw:app_rw_dev_2026@localhost:54330
 - `GET /healthz`：进程存活；`GET /readyz`：数据库、Redis、Milvus 依赖检查（数据库不可用返回 503）。
 - 每个请求返回 `X-Request-Id`，并写入结构化日志；`LOG_FORMAT=json` 可直接接入 Loki/ELK。
 - `OTEL_ENABLED=1` 时启用 OpenTelemetry FastAPI / HTTPX / SQLAlchemy 自动埋点；`OTEL_EXPORTER_OTLP_ENDPOINT` 指向 Collector，未配置时默认不产生 exporter 网络请求。
-- `GET /metrics` 保留 Prometheus 文本指标。
+- `GET /metrics` 保留 Prometheus 文本指标（请求数、耗时直方图、健康状态）。
+- 本地监控栈：`docker compose -f infra/compose/docker-compose.monitoring.yml up -d`，Prometheus `http://localhost:19090`，Grafana `http://localhost:13000`（admin/admin），预置 `CloudDesk API Overview` 看板与 3 条告警规则（后端宕机、5xx、P95 延迟）。
 
 ## 🔌 HTTP API 与流式事件
 

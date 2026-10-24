@@ -31,7 +31,11 @@ from backend.observability.logging import (
     reset_request_id,
     set_request_id,
 )
-from backend.observability.metrics import create_metrics_state, render_prometheus_metrics
+from backend.observability.metrics import (
+    create_metrics_state,
+    record_http_request,
+    render_prometheus_metrics,
+)
 from backend.observability.readiness import readiness_report
 from backend.observability.tracing import setup_tracing
 from backend.rag.vector_store import KnowledgeVectorStore, create_knowledge_vector_store
@@ -107,7 +111,13 @@ def create_app(
         finally:
             reset_request_id(token)
         latency_ms = int((time.perf_counter() - started) * 1000)
-        app.state.metrics["requests"][(request.method, request.url.path, response.status_code)] += 1
+        record_http_request(
+            app.state.metrics,
+            method=request.method,
+            path=request.url.path,
+            status_code=response.status_code,
+            latency_seconds=latency_ms / 1000,
+        )
         response.headers["X-Request-Id"] = request_id
         logger.info(
             "http_request",
