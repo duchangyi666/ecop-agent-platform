@@ -137,19 +137,21 @@ npm run dev          # 访问 http://localhost:3000/
 
 ## 🔑 演示账号
 
-一键创建 5 个演示账号（含租户、角色权限，幂等可重复执行）：
+在 `AUTH_MODE=dev` 下创建 5 个演示身份（默认租户 `clouddesk-demo`，幂等可重复执行）：
 
 ```powershell
 python scripts/seed_demo_accounts.py
 ```
 
-| 角色       | 邮箱                      | 密码              | 权限                                  |
-| ---------- | ------------------------- | ----------------- | ------------------------------------- |
-| 平台管理员 | `admin@clouddesk.demo`    | `Admin@123456`    | 全权限（含退款审批 / 评测 / Runtime） |
-| 客服专员   | `agent@clouddesk.demo`    | `Agent@123456`    | 咨询 / 会话 / 工单 / 知识库           |
-| 财务审核员 | `finance@clouddesk.demo`  | `Finance@123456`  | 退款申请 + 审批 / 审批查看            |
-| 演示客户   | `customer@clouddesk.demo` | `Customer@123456` | 咨询 / 会话 / 工单 / 知识检索         |
-| 访客       | `guest@clouddesk.demo`    | `Guest@123456`    | 最小只读权限                          |
+| 身份       | 邮箱                      | 权限摘要 |
+| ---------- | ------------------------- | -------- |
+| 平台管理员 | `admin@clouddesk.demo`    | 全部 16 项权限 |
+| 客服专员   | `agent@clouddesk.demo`    | 咨询、会话、工单、审批查看、知识检索 |
+| 财务审核员 | `finance@clouddesk.demo`  | 咨询、会话查看、退款申请 / 审批、Runtime 查看 |
+| 演示客户   | `customer@clouddesk.demo` | 咨询、会话、工单创建 / 查看、知识检索 |
+| 访客       | `guest@clouddesk.demo`    | 仅知识检索 |
+
+这些身份不设置密码。在开发身份选择器 `/identity` 中选择对应租户和用户，或用脚本输出的 `tenant_id` / `user_id` 调用开发 Token 接口；企业密码登录使用 `/login` 的 OIDC 流程。权限复用 `backend/auth/permissions.py` 的角色矩阵，数据库以组合的 `demo_*` 权限角色存储。重复执行不增加用户或授权行，不会重新启用已停用 / 删除的身份；发现已有额外权限时会报错，建议改用新的 `--tenant-slug`，不会自动撤销既有授权。该脚本只初始化身份，业务样例数据需另行生成。
 
 生成业务演示数据（工单 / 审批 / 知识文档 / 会话，落库到指定租户）：
 
