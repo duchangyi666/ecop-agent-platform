@@ -153,7 +153,15 @@ python scripts/seed_demo_accounts.py
 
 这些身份不设置密码。在开发身份选择器 `/identity` 中选择对应租户和用户，或用脚本输出的 `tenant_id` / `user_id` 调用开发 Token 接口；企业密码登录使用 `/login` 的 OIDC 流程。权限复用 `backend/auth/permissions.py` 的角色矩阵，数据库以组合的 `demo_*` 权限角色存储。重复执行不增加用户或授权行，不会重新启用已停用 / 删除的身份；发现已有额外权限时会报错，建议改用新的 `--tenant-slug`，不会自动撤销既有授权。该脚本只初始化身份，业务样例数据需另行生成。
 
-生成业务演示数据（工单 / 审批 / 知识文档 / 会话，落库到指定租户）：
+初始化同一租户下的小型完整样例（包含上述五种身份、客户关联、付款、工单和三份知识文档）：
+
+```powershell
+python scripts/seed_demo_scenario.py
+```
+
+默认使用 `clouddesk-demo`，也可用 `--tenant-slug` 指定独立演示租户。脚本输出身份和业务对象 ID；开发身份选择器选择该租户后即可操作这些对象。重复执行保留已有对象及其业务状态，知识内容未变时不新增版本；如需全新的演示流程，使用新的租户 slug。此入口仅在 `AUTH_MODE=dev` 可运行，知识写入 PostgreSQL，不访问模型或 Milvus；退款只验证本地申请与审批，不执行第三方资金操作。
+
+需要更大规模的独立合成数据时（生成器默认使用 `demo-ops` 租户前缀，不与上述样例混用）：
 
 ```powershell
 python scripts/generate_synthetic_data.py --scale small --seed 42 --tenant-prefix demo-ops
