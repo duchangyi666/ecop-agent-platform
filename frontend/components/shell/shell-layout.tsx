@@ -96,7 +96,31 @@ export function ShellLayout({ children }: { children: ReactNode }) {
     href === "/" ? pathname === href : pathname === href || pathname.startsWith(href + "/");
 
   const canSee = (item: NavItem) =>
-    !item.permission || authzLoading || Boolean(authzError) || can(item.permission);
+    !item.permission || (!authzLoading && !authzError && can(item.permission));
+
+  const canSeeWorkspace = !authzLoading && !authzError && [
+    PERMISSIONS.TICKET_READ,
+    PERMISSIONS.APPROVAL_READ,
+    PERMISSIONS.KNOWLEDGE_SEARCH,
+    PERMISSIONS.CUSTOMER_CONSULT,
+  ].some(can);
+  const canSeeAdmin = !authzLoading && !authzError && [
+    PERMISSIONS.RUNTIME_READ,
+    PERMISSIONS.EVALUATION_READ,
+    PERMISSIONS.KNOWLEDGE_INGEST,
+  ].some(can);
+
+  const portalHref = (portal: (typeof PORTALS)[number]) => {
+    if (portal.key === "workspace" && !can(PERMISSIONS.TICKET_READ)) {
+      if (can(PERMISSIONS.APPROVAL_READ)) return "/workspace/approvals";
+      if (can(PERMISSIONS.KNOWLEDGE_SEARCH)) return "/workspace/knowledge";
+      return "/workspace/consult";
+    }
+    if (portal.key === "admin" && !can(PERMISSIONS.RUNTIME_READ)) {
+      return can(PERMISSIONS.EVALUATION_READ) ? "/admin/evaluations" : "/admin/knowledge";
+    }
+    return portal.href;
+  };
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -139,12 +163,16 @@ export function ShellLayout({ children }: { children: ReactNode }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-12 shrink-0 items-center gap-4 border-b border-border px-4">
           <div className="flex gap-1">
-            {PORTALS.map((portal) => {
+            {PORTALS.filter((portal) =>
+              portal.key === "portal" ||
+              (portal.key === "workspace" && canSeeWorkspace) ||
+              (portal.key === "admin" && canSeeAdmin),
+            ).map((portal) => {
               const active = portalKey === portal.key;
               return (
                 <Link
                   key={portal.key}
-                  href={portal.href}
+                  href={portalHref(portal)}
                   className={cn(
                     "rounded-md px-3 py-1.5 text-sm transition-colors",
                     active

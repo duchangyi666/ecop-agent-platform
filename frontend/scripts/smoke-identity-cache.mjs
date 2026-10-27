@@ -26,6 +26,21 @@ try {
   // Use client-side navigation so the React Query cache survives the switch.
   await page.getByRole("link", { name: new RegExp(`演示客户 ${tenantPattern}`) }).click();
   await selectFromPicker("guest@clouddesk.demo");
+  await page.getByText("当前身份没有客服咨询权限", { exact: true }).waitFor();
+  if (await page.getByRole("textbox", { name: "描述您的问题，支持连续对话…" }).count()) {
+    throw new Error("guest can see the consultation composer");
+  }
+  if (await page.getByRole("link", { name: "管理控制台", exact: true }).count()) {
+    throw new Error("guest can see the management entry");
+  }
+  const workspace = page.getByRole("link", { name: "客服工作台", exact: true });
+  if (await workspace.getAttribute("href") !== "/workspace/knowledge") {
+    throw new Error("guest workspace does not lead to permitted knowledge search");
+  }
+  await page.getByRole("link", { name: "前往知识库检索" }).click();
+  await page.getByPlaceholder("例如：重复扣费如何申请退款？").fill("退款");
+  await page.getByRole("button", { name: "检索", exact: true }).click();
+  await page.getByRole("heading", { name: "退款政策与到账说明" }).waitFor();
   const denied = page.waitForResponse((response) =>
     response.url().includes("/api/v1/conversations") && response.status() === 403,
   );
@@ -68,7 +83,11 @@ try {
     throw new Error("guest can see data from a previous bearer session");
   }
 
-  console.log("PASS: identity switch clears cached data and any previous bearer token");
+  await page.goto(`${baseUrl}/identity`, { waitUntil: "domcontentloaded" });
+  await selectFromPicker("finance@clouddesk.demo");
+  await page.getByRole("link", { name: "管理控制台", exact: true }).waitFor();
+
+  console.log("PASS: identity isolation and permitted guest / finance navigation");
 } catch (error) {
   console.error("FAIL: identity cache smoke:", error instanceof Error ? error.message : error);
   process.exitCode = 1;
