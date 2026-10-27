@@ -33,6 +33,7 @@ export function ChatWindow() {
   const [showContext, setShowContext] = useState(false);
   const [threadId, setThreadId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [loadedStorageKey, setLoadedStorageKey] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Persist the conversation per identity so history survives navigating to
@@ -42,27 +43,33 @@ export function ChatWindow() {
     : null;
 
   useEffect(() => {
-    if (!storageKey) return;
+    let savedThreadId: string | null = null;
+    let savedMessages: ChatMessage[] = [];
     try {
-      const raw = window.localStorage.getItem(storageKey);
+      const raw = storageKey ? window.localStorage.getItem(storageKey) : null;
       if (raw) {
         const saved = JSON.parse(raw) as { threadId?: string | null; messages?: ChatMessage[] };
-        setThreadId(saved.threadId ?? null);
-        setMessages(Array.isArray(saved.messages) ? saved.messages : []);
+        savedThreadId = typeof saved.threadId === "string" ? saved.threadId : null;
+        savedMessages = Array.isArray(saved.messages) ? saved.messages : [];
       }
     } catch {
       /* ignore malformed saved state */
     }
+    setThreadId(savedThreadId);
+    setMessages(savedMessages);
+    setLoadedStorageKey(storageKey);
   }, [storageKey]);
 
   useEffect(() => {
-    if (!storageKey) return;
+    // Do not overwrite a saved conversation with the initial empty state.
+    // Matching the key also prevents one identity's state being saved for another.
+    if (!storageKey || loadedStorageKey !== storageKey) return;
     try {
       window.localStorage.setItem(storageKey, JSON.stringify({ threadId, messages }));
     } catch {
       /* ignore quota errors */
     }
-  }, [storageKey, threadId, messages]);
+  }, [storageKey, loadedStorageKey, threadId, messages]);
 
   // SSE process events (evidence / processing notes) shown under the current turn.
   const processSteps = events.filter((event) => event.event !== "done");
@@ -96,6 +103,10 @@ export function ChatWindow() {
     setInput("");
     void run({ thread_id: thread, message, history });
   };
+
+  if (loadedStorageKey !== storageKey) {
+    return <div className="p-6 text-sm text-muted-foreground">正在恢复对话…</div>;
+  }
 
   return (
     <div className="flex h-full min-h-0">

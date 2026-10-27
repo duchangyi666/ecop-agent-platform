@@ -161,6 +161,8 @@ python scripts/seed_demo_scenario.py
 
 默认使用 `clouddesk-demo`，也可用 `--tenant-slug` 指定独立演示租户。脚本输出身份和业务对象 ID；开发身份选择器选择该租户后即可操作这些对象。重复执行保留已有对象及其业务状态，知识内容未变时不新增版本；如需全新的演示流程，使用新的租户 slug。此入口仅在 `AUTH_MODE=dev` 可运行，知识写入 PostgreSQL，不访问模型或 Milvus；退款只验证本地申请与审批，不执行第三方资金操作。
 
+前后端启动并准备上述数据后，可在 `frontend` 目录运行 `npm run test:chat-persistence`，用本机已安装的 Playwright Chromium 检查对话跨页面、刷新和身份切换；默认访问 `http://127.0.0.1:3000`，可通过 `SMOKE_BASE_URL` 和 `SMOKE_TENANT_SLUG` 覆盖。测试会在独立浏览器上下文中发送演示咨询并产生记录；后端未配置模型密钥时使用离线模型，否则会调用已配置的模型服务。该测试仅适用于演示环境，不代表生产验收。
+
 需要更大规模的独立合成数据时（生成器默认使用 `demo-ops` 租户前缀，不与上述样例混用）：
 
 ```powershell
