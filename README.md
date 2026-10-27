@@ -219,6 +219,8 @@ Redis 队列执行异步维护任务（模块 `backend.tasks.worker` / `backend.
 
 **租户隔离（RLS）**：Alembic `010` 为 35 张业务表启用 `tenant_isolation` policy，应用通过 `set_config('app.tenant_id', ..., true)` 在每个事务设置租户上下文。当前迁移使用 `ENABLE` 而非 `FORCE`，本地表 owner 仍会绕过策略；**生产必须使用非 owner 的 `app_rw` 角色**，否则 RLS 不会生效。CI/测试用 `pg_read_all_data` / `pg_write_all_data` 非 owner 角色验证跨租户读取和写入拒绝。身份表（`users`/`roles`/`permissions`/`user_roles`）暂不启用 RLS，登录由身份服务单独处理。
 
+迁移 `011` 将事务结束后可能出现的空租户设置视为未设置：非 owner 角色读取不到租户业务行，写入被拒绝。集成测试使用单连接池验证提交和回滚后连接复用，以及租户切换；这不改变表 owner 绕过 RLS 的限制。
+
 本地体验 RLS 强制模式：
 
 ```powershell
