@@ -35,6 +35,8 @@ jobs:
         run: |
           cd frontend
           npm run build
+        env:
+          BACKEND_URL: http://127.0.0.1:8000
 
       - name: Install project
         run: |
