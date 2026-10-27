@@ -100,11 +100,12 @@ export function useSendConversationMessage() {
 
 /* ---------- tickets ---------- */
 
-export function useTickets(status?: string) {
+export function useTickets(status?: string, enabled = true) {
   const scope = useBusinessQueryScope();
   return useQuery({
     queryKey: ["tickets", status ?? "all", scope],
     queryFn: () => api.get<TicketListResponse>("/api/v1/tickets", { status, limit: 100 }),
+    enabled,
   });
 }
 
@@ -139,11 +140,12 @@ export function useUpdateTicket() {
 
 /* ---------- approvals ---------- */
 
-export function useApprovals(status?: string) {
+export function useApprovals(status?: string, enabled = true) {
   const scope = useBusinessQueryScope();
   return useQuery({
     queryKey: ["approvals", status ?? "all", scope],
     queryFn: () => api.get<ApprovalListResponse>("/api/v1/approvals", { status, limit: 100 }),
+    enabled,
   });
 }
 
@@ -170,11 +172,12 @@ export function useActOnApproval() {
 
 /* ---------- knowledge ---------- */
 
-export function useKnowledgeDocuments() {
+export function useKnowledgeDocuments(enabled = true) {
   const scope = useBusinessQueryScope();
   return useQuery({
     queryKey: ["knowledge", "documents", scope],
     queryFn: () => api.get<KnowledgeDocumentListResponse>("/api/v1/knowledge/documents", { limit: 100 }),
+    enabled,
   });
 }
 

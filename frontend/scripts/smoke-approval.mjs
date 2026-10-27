@@ -75,6 +75,25 @@ try {
   if (approval.approval.status !== "approved" || approval.actions.length !== 1) {
     throw new Error("duplicate approval changed the persisted action count or status");
   }
+  const pendingResponse = await page.request.get(`${baseUrl}/api/v1/approvals?status=pending&limit=100`, {
+    headers: finance,
+  });
+  await expectStatus(pendingResponse, 200, "read pending approvals");
+  const pendingCount = (await pendingResponse.json()).approvals.length;
+  const forbiddenRequests = [];
+  page.on("response", (response) => {
+    if (response.status() === 403) forbiddenRequests.push(response.url());
+  });
+  await page.getByRole("link", { name: "管理控制台", exact: true }).click();
+  await page.waitForURL("**/admin");
+  const pendingCard = page.getByRole("link", { name: /待审批/ });
+  await pendingCard.getByText(pendingCount >= 100 ? "100+" : String(pendingCount), {
+    exact: true,
+  }).waitFor();
+  if (await page.getByRole("link", { name: /工单|知识文档/ }).count()) {
+    throw new Error("finance overview exposes links outside its permissions");
+  }
+  if (forbiddenRequests.length) throw new Error("finance overview requested forbidden data");
   await page.goto(`${baseUrl}/admin/runtime/${refund.trace_id}`);
   await page.getByText("approved_for_execution", { exact: true }).waitFor();
   await page.getByText("agent.refund", { exact: true }).waitFor();
