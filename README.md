@@ -174,6 +174,16 @@ npm run test:approval
 
 也可运行 `npm run test:demo` 顺序执行聊天、身份隔离和审批三项浏览器检查。审批脚本限制通过本机地址访问，并会在演示数据库新增退款与审批记录；请使用隔离的开发演示环境和虚构数据。重复 seed 不会清除这些记录，需要全新状态时使用新的演示租户。该测试使用开发身份，不验证 OIDC 或真实支付。
 
+在 Windows 上，前后端已启动、依赖和 Playwright Chromium 已安装后，也可以从仓库根目录用一个命令初始化样例并执行上述三项检查，无需手动复制付款 ID：
+
+```powershell
+$env:AUTH_MODE = 'dev'
+$env:DATABASE_URL = 'postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations'
+.\scripts\run_demo_smoke.ps1 -TenantSlug 'clouddesk-demo'
+```
+
+这里的数据库必须与正在运行的演示后端一致。使用 `-TenantSlug` 指定新的租户可获得独立样例；脚本不删除已有数据。非默认地址可通过 `-BaseUrl` 指定本机前端，非默认 Python 可通过 `-PythonExecutable` 指定。脚本会写入虚构演示数据，仍需确保后端未配置真实模型密钥以进行离线演示。
+
 需要更大规模的独立合成数据时（生成器默认使用 `demo-ops` 租户前缀，不与上述样例混用）：
 
 ```powershell
