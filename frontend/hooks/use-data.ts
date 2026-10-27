@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { useAuthStore } from "@/lib/auth-store";
 import type {
   ApprovalActionRequest,
   ApprovalDetailResponse,
@@ -34,6 +35,13 @@ import type {
   TicketPatchRequest,
 } from "@/lib/types";
 
+function useBusinessQueryScope() {
+  const tenantId = useAuthStore((state) => state.identity?.tenantId ?? null);
+  const userId = useAuthStore((state) => state.identity?.userId ?? null);
+  const actorType = useAuthStore((state) => state.identity?.actorType ?? null);
+  return { tenantId, userId, actorType };
+}
+
 /* ---------- identity ---------- */
 
 export function useTenants() {
@@ -55,15 +63,17 @@ export function useTenantUsers(tenantId: string | null) {
 /* ---------- conversations ---------- */
 
 export function useConversations(status?: string) {
+  const scope = useBusinessQueryScope();
   return useQuery({
-    queryKey: ["conversations", status ?? "all"],
+    queryKey: ["conversations", status ?? "all", scope],
     queryFn: () => api.get<ConversationListResponse>("/api/v1/conversations", { status, limit: 50 }),
   });
 }
 
 export function useConversation(conversationId: string | null) {
+  const scope = useBusinessQueryScope();
   return useQuery({
-    queryKey: ["conversations", conversationId],
+    queryKey: ["conversations", conversationId, scope],
     queryFn: () => api.get<ConversationDetailResponse>(`/api/v1/conversations/${conversationId}`),
     enabled: Boolean(conversationId),
   });
@@ -91,15 +101,17 @@ export function useSendConversationMessage() {
 /* ---------- tickets ---------- */
 
 export function useTickets(status?: string) {
+  const scope = useBusinessQueryScope();
   return useQuery({
-    queryKey: ["tickets", status ?? "all"],
+    queryKey: ["tickets", status ?? "all", scope],
     queryFn: () => api.get<TicketListResponse>("/api/v1/tickets", { status, limit: 100 }),
   });
 }
 
 export function useTicket(ticketId: string | null) {
+  const scope = useBusinessQueryScope();
   return useQuery({
-    queryKey: ["tickets", ticketId],
+    queryKey: ["tickets", ticketId, scope],
     queryFn: () => api.get<TicketDetailResponse>(`/api/v1/tickets/${ticketId}`),
     enabled: Boolean(ticketId),
   });
@@ -128,15 +140,17 @@ export function useUpdateTicket() {
 /* ---------- approvals ---------- */
 
 export function useApprovals(status?: string) {
+  const scope = useBusinessQueryScope();
   return useQuery({
-    queryKey: ["approvals", status ?? "all"],
+    queryKey: ["approvals", status ?? "all", scope],
     queryFn: () => api.get<ApprovalListResponse>("/api/v1/approvals", { status, limit: 100 }),
   });
 }
 
 export function useApproval(approvalId: string | null) {
+  const scope = useBusinessQueryScope();
   return useQuery({
-    queryKey: ["approvals", approvalId],
+    queryKey: ["approvals", approvalId, scope],
     queryFn: () => api.get<ApprovalDetailResponse>(`/api/v1/approvals/${approvalId}`),
     enabled: Boolean(approvalId),
   });
@@ -157,15 +171,17 @@ export function useActOnApproval() {
 /* ---------- knowledge ---------- */
 
 export function useKnowledgeDocuments() {
+  const scope = useBusinessQueryScope();
   return useQuery({
-    queryKey: ["knowledge", "documents"],
+    queryKey: ["knowledge", "documents", scope],
     queryFn: () => api.get<KnowledgeDocumentListResponse>("/api/v1/knowledge/documents", { limit: 100 }),
   });
 }
 
 export function useKnowledgeSearch(query: string, enabled = false) {
+  const scope = useBusinessQueryScope();
   return useQuery({
-    queryKey: ["knowledge", "search", query],
+    queryKey: ["knowledge", "search", query, scope],
     queryFn: () => api.get<KnowledgeSearchResponse>("/api/v1/knowledge/search", { q: query, limit: 10 }),
     enabled: enabled && query.trim().length > 0,
   });
@@ -200,30 +216,34 @@ export function useReindexKnowledge() {
 /* ---------- runtime ---------- */
 
 export function useRuntimeTraces() {
+  const scope = useBusinessQueryScope();
   return useQuery({
-    queryKey: ["runtime", "traces"],
+    queryKey: ["runtime", "traces", scope],
     queryFn: () => api.get<RuntimeTraceListResponse>("/api/v1/runtime/traces", { limit: 50 }),
   });
 }
 
 export function useRuntimeTrace(traceId: string | null) {
+  const scope = useBusinessQueryScope();
   return useQuery({
-    queryKey: ["runtime", "traces", traceId],
+    queryKey: ["runtime", "traces", traceId, scope],
     queryFn: () => api.get<RuntimeTraceDetailResponse>(`/api/v1/runtime/traces/${traceId}`),
     enabled: Boolean(traceId),
   });
 }
 
 export function useRuntimeCosts() {
+  const scope = useBusinessQueryScope();
   return useQuery({
-    queryKey: ["runtime", "costs"],
+    queryKey: ["runtime", "costs", scope],
     queryFn: () => api.get<RuntimeCostResponse>("/api/v1/runtime/costs"),
   });
 }
 
 export function useRuntimeAgents() {
+  const scope = useBusinessQueryScope();
   return useQuery({
-    queryKey: ["runtime", "agents"],
+    queryKey: ["runtime", "agents", scope],
     queryFn: () => api.get<RuntimeAgentListResponse>("/api/v1/runtime/agents"),
   });
 }
@@ -231,8 +251,9 @@ export function useRuntimeAgents() {
 /* ---------- evaluations ---------- */
 
 export function useEvaluationRuns() {
+  const scope = useBusinessQueryScope();
   return useQuery({
-    queryKey: ["evaluations", "runs"],
+    queryKey: ["evaluations", "runs", scope],
     queryFn: () => api.get<EvaluationRunListResponse>("/api/v1/evaluations", { limit: 50 }),
   });
 }

@@ -163,6 +163,8 @@ python scripts/seed_demo_scenario.py
 
 前后端启动并准备上述数据后，可在 `frontend` 目录运行 `npm run test:chat-persistence`，用本机已安装的 Playwright Chromium 检查对话跨页面、刷新和身份切换；默认访问 `http://127.0.0.1:3000`，可通过 `SMOKE_BASE_URL` 和 `SMOKE_TENANT_SLUG` 覆盖。测试会在独立浏览器上下文中发送演示咨询并产生记录；后端未配置模型密钥时使用离线模型，否则会调用已配置的模型服务。该测试仅适用于演示环境，不代表生产验收。
 
+`npm run test:identity-cache` 可在同一演示环境验证应用内切换身份时，上一身份的业务缓存与 Bearer Token 不会继续用于新身份。运行时会读取演示工单并发起开发 Token 请求；服务端鉴权和租户隔离仍是安全边界。
+
 需要更大规模的独立合成数据时（生成器默认使用 `demo-ops` 租户前缀，不与上述样例混用）：
 
 ```powershell
