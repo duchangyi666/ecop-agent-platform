@@ -165,6 +165,15 @@ python scripts/seed_demo_scenario.py
 
 `npm run test:identity-cache` 可在同一演示环境验证应用内切换身份时，上一身份的业务缓存与 Bearer Token 不会继续用于新身份。运行时会读取演示工单并发起开发 Token 请求；服务端鉴权和租户隔离仍是安全边界。
 
+`npm run test:approval` 会使用 seed 输出的 `payment_id` 创建一条本地退款申请，通过浏览器完成财务审批，并检查访客被拒绝、重复审批被拒绝、审批记录和 Runtime 轨迹。执行前在 `frontend` 目录设置环境变量（将值替换为本次 seed 输出）：
+
+```powershell
+$env:SMOKE_PAYMENT_ID = '<seed 输出的 payment_id>'
+npm run test:approval
+```
+
+也可运行 `npm run test:demo` 顺序执行聊天、身份隔离和审批三项浏览器检查。审批脚本限制通过本机地址访问，并会在演示数据库新增退款与审批记录；请使用隔离的开发演示环境和虚构数据。重复 seed 不会清除这些记录，需要全新状态时使用新的演示租户。该测试使用开发身份，不验证 OIDC 或真实支付。
+
 需要更大规模的独立合成数据时（生成器默认使用 `demo-ops` 租户前缀，不与上述样例混用）：
 
 ```powershell
