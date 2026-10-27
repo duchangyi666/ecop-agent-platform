@@ -65,10 +65,12 @@ jobs:
           PYTHONNOUSERSITE: "1"
 
       - name: Install browser for demo smoke
+        timeout-minutes: 5
         run: npx --no-install playwright install --with-deps chromium
         working-directory: frontend
 
       - name: Run demo browser smoke
+        timeout-minutes: 5
         shell: bash
         env:
           AUTH_MODE: dev
