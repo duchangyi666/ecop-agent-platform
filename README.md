@@ -151,7 +151,7 @@ python scripts/seed_demo_accounts.py
 | 演示客户   | `customer@clouddesk.demo` | 咨询、会话、工单创建 / 查看、知识检索 |
 | 访客       | `guest@clouddesk.demo`    | 仅知识检索 |
 
-这些身份不设置密码。在开发身份选择器 `/identity` 中选择对应租户和用户，或用脚本输出的 `tenant_id` / `user_id` 调用开发 Token 接口；企业密码登录使用 `/login` 的 OIDC 流程。权限复用 `backend/auth/permissions.py` 的角色矩阵，数据库以组合的 `demo_*` 权限角色存储。重复执行不增加用户或授权行，不会重新启用已停用 / 删除的身份；发现已有额外权限时会报错，建议改用新的 `--tenant-slug`，不会自动撤销既有授权。该脚本只初始化身份，业务样例数据需另行生成。
+这些身份不设置密码。在开发身份选择器 `/identity` 中选择对应租户和用户，或用脚本输出的 `tenant_id` / `user_id` 调用开发 Token 接口；企业密码登录使用 `/login` 的 OIDC 流程。开发身份列表 API 仅在 `AUTH_MODE=dev` 可用，`oidc` 和 `jwt-only` 模式返回 404。权限复用 `backend/auth/permissions.py` 的角色矩阵，数据库以组合的 `demo_*` 权限角色存储。重复执行不增加用户或授权行，不会重新启用已停用 / 删除的身份；发现已有额外权限时会报错，建议改用新的 `--tenant-slug`，不会自动撤销既有授权。该脚本只初始化身份，业务样例数据需另行生成。
 
 初始化同一租户下的小型完整样例（包含上述五种身份、客户关联、付款、工单和三份知识文档）：
 

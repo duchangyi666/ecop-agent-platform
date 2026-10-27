@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi.routing import APIRoute
 
+from backend.api.routes.identity import require_development_mode
 from backend.auth.permissions import ALL_PERMISSIONS
 from backend.main import create_app
 
@@ -20,9 +21,19 @@ _PUBLIC_ROUTES = {
     "/api/v1/auth/oidc/config",
     "/api/v1/auth/oidc/exchange",
     "/api/v1/auth/me",
+}
+
+_DEV_ONLY_ROUTES = {
     "/api/v1/identity/tenants",
     "/api/v1/identity/tenants/{tenant_id}/users",
 }
+
+
+def _has_dependency(dependant, target) -> bool:
+    return any(
+        dependency.call is target or _has_dependency(dependency, target)
+        for dependency in dependant.dependencies
+    )
 
 
 def _collect_permission_codes(dependant) -> set[str]:
@@ -52,10 +63,21 @@ def test_route_permissions_are_in_the_canonical_catalog() -> None:
     known = set(ALL_PERMISSIONS)
 
     for (path, method), codes in matrix.items():
-        if path in _PUBLIC_ROUTES:
+        if path in _PUBLIC_ROUTES or path in _DEV_ONLY_ROUTES:
             continue
         assert codes, f"{method} {path} is missing require_permission"
         assert codes <= known, f"{method} {path} uses unknown permission: {codes - known}"
+
+
+def test_development_identity_routes_are_gated() -> None:
+    app = create_app(knowledge_vector_store=None)
+    routes = {
+        route.path: route for route in app.routes
+        if isinstance(route, APIRoute) and route.path in _DEV_ONLY_ROUTES
+    }
+    assert set(routes) == _DEV_ONLY_ROUTES
+    for route in routes.values():
+        assert _has_dependency(route.dependant, require_development_mode), route.path
 
 
 def test_sensitive_routes_have_expected_permissions() -> None:
