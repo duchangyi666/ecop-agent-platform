@@ -21,7 +21,13 @@ try {
   await selectIdentity("customer@clouddesk.demo");
   const input = page.getByRole("textbox", { name: "描述您的问题，支持连续对话…" });
   await input.fill(question);
+  const sent = page.waitForRequest((request) =>
+    request.url().includes("/api/v1/customer-consultations/stream") && request.method() === "POST",
+  );
   await page.getByRole("button", { name: "发送" }).click();
+  if ("history" in (await sent).postDataJSON()) {
+    throw new Error("consultation request should not send client-supplied history");
+  }
   await page.getByText("2 条消息 · 多轮对话中", { exact: true }).waitFor();
 
   await page.getByRole("link", { name: "我的工单" }).click();

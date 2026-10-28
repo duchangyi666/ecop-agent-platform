@@ -5,7 +5,6 @@ import { PanelRight, Send, Sparkles, Square } from "lucide-react";
 import { useConsultStream, type ConsultEvent } from "@/hooks/use-consult-stream";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
-import type { ChatHistoryItem } from "@/lib/types";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -118,13 +117,9 @@ export function ChatWindow() {
     if (!message || running) return;
     const thread = threadId ?? `chat-${crypto.randomUUID().slice(0, 8)}`;
     setThreadId(thread);
-    const history: ChatHistoryItem[] = messages.map((msg) => ({
-      role: msg.role,
-      content: msg.pending ? HIDDEN_INPUT : msg.content,
-    }));
     setMessages((prev) => [...prev, { role: "user", content: message, pending: true }]);
     setInput("");
-    void run({ thread_id: thread, message, history });
+    void run({ thread_id: thread, message });
   };
 
   if (loadedStorageKey !== storageKey) {

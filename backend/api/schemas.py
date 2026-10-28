@@ -35,8 +35,7 @@ class CustomerConsultationRequest(BaseModel):
 
     thread_id: str = Field(min_length=1, max_length=120)
     message: str = Field(min_length=1, max_length=2000)
-    # Optional prior turns so the agent can answer with full conversation
-    # context (multi-turn dialogue), not just the latest message.
+    # Accepted for compatibility; database-backed consultation uses server history.
     history: list[ChatHistoryItem] | None = None
 
 

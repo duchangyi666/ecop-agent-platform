@@ -4,9 +4,11 @@ import hashlib
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import and_, or_, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.agent.actions import ConversationActionExecutor, action_to_evidence
@@ -18,9 +20,11 @@ from backend.agent.agents.customer_service import (
 from backend.agent.graphs.main_graph import build_main_graph
 from backend.core.orchestrator import route_intent
 from backend.agent.nodes.guards import domain_guard_node, input_security_guard_node
-from backend.agent.state import AgentState, KnowledgeEvidence
+from backend.agent.state import AgentState, ConversationMessage, KnowledgeEvidence, create_agent_state
+from backend.database.models.support import Conversation, ConversationMessage as StoredConversationMessage
 from backend.database.models.governance import MemoryRecord
 from backend.database.unit_of_work import UnitOfWork
+from backend.domain.common import DomainError
 from backend.llm.contracts import ModelUsage, ResponseDraft
 from backend.llm.errors import ModelGatewayError
 from backend.llm.gateway import ModelGateway
@@ -147,6 +151,8 @@ async def run_customer_consultation_graph(
 
 
 class CustomerConsultationService:
+    HISTORY_MESSAGE_LIMIT = 20
+
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession] | None,
@@ -168,6 +174,60 @@ class CustomerConsultationService:
         self,
         request: CustomerConsultationWorkflowRequest,
     ) -> CustomerConsultationResult:
+        created_conversation = False
+        if self.session_factory is not None:
+            scope = request.state.tenant_scope
+            if scope.actor_id is None:
+                raise DomainError("consultation identity is required")
+            user_message = next(
+                (message.content for message in reversed(request.state.conversation) if message.role == "user"),
+                "",
+            )
+            async with UnitOfWork(self.session_factory, scope=scope) as uow:
+                customer_id = await uow.identity.get_customer_for_user(scope=scope, user_id=scope.actor_id)
+                statement = (
+                    insert(Conversation)
+                    .values(
+                        id=uuid4(), tenant_id=scope.tenant_id, user_id=scope.actor_id,
+                        customer_id=customer_id, thread_id=request.thread_id,
+                        channel="ai_chat", subject="智能客服对话", status="open",
+                    )
+                    .on_conflict_do_nothing(constraint="uq_conversations_tenant_id_thread_id")
+                    .returning(Conversation.id)
+                )
+                created_conversation = await uow.session.scalar(statement) is not None
+                conversation = await uow.support.get_conversation_by_thread(
+                    scope=scope, thread_id=request.thread_id,
+                )
+                if (conversation is None or conversation.user_id != scope.actor_id
+                        or conversation.channel != "ai_chat"):
+                    raise DomainError("consultation thread is unavailable")
+                messages = list(await uow.session.scalars(
+                    select(StoredConversationMessage)
+                    .where(
+                        StoredConversationMessage.tenant_id == scope.tenant_id,
+                        StoredConversationMessage.conversation_id == conversation.id,
+                        StoredConversationMessage.deleted_at.is_(None),
+                        StoredConversationMessage.visibility == "public",
+                        or_(
+                            and_(StoredConversationMessage.role == "user",
+                                 StoredConversationMessage.author_id == scope.actor_id,
+                                 StoredConversationMessage.author_type == "user"),
+                            and_(StoredConversationMessage.role == "assistant",
+                                 StoredConversationMessage.author_id.is_(None),
+                                 StoredConversationMessage.author_type == "agent"),
+                        ),
+                    )
+                    .order_by(StoredConversationMessage.created_at.desc(), StoredConversationMessage.id.desc())
+                    .limit(self.HISTORY_MESSAGE_LIMIT)
+                ))
+                history = [ConversationMessage(role=item.role, content=item.body) for item in reversed(messages)]
+            trusted_state = create_agent_state(
+                scope=scope, request_id=request.state.request_id, message=user_message, history=history,
+            )
+            request = request.model_copy(update={
+                "state": request.state.model_copy(update={"conversation": trusted_state.conversation}),
+            })
         if self.event_sink is not None:
             await self.event_sink(
                 "started",
@@ -287,6 +347,10 @@ class CustomerConsultationService:
                     subject=(persisted_message[:255] or "智能客服对话"),
                 )
                 conversation.thread_id = request.thread_id
+            elif conversation.user_id != scope.actor_id:
+                raise DomainError("consultation thread is unavailable")
+            if created_conversation:
+                conversation.subject = persisted_message[:255] or "智能客服对话"
             await uow.support.append_conversation_message(
                 scope=scope,
                 conversation_id=conversation.id,
