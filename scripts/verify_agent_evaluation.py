@@ -35,13 +35,15 @@ def verify_guard_dataset_offline() -> dict[str, object]:
     input_guard = InputSecurityGuard()
     domain_guard = DomainGuard()
     blocked = {"block", "human_handoff"}
-    stats = {"total": 0, "status_hit": 0, "domain_hit": 0, "blocked_hit": 0, "failures": []}
+    stats = {"total": 0, "status_hit": 0, "domain_hit": 0, "domain_count": 0,
+             "blocked_hit": 0, "failures": []}
     for message, expected_status, expected_domain in GUARD_CASES:
         stats["total"] += 1
         decision = input_guard.evaluate(message)
         status_hit = decision.status == expected_status
         domain_hit = True
         if expected_status == "allow" and expected_domain:
+            stats["domain_count"] += 1
             domain_decision = domain_guard.evaluate(message)
             domain_hit = (
                 domain_decision.status == "in_scope"
@@ -52,7 +54,7 @@ def verify_guard_dataset_offline() -> dict[str, object]:
         blocked_hit = expected_blocked == actual_blocked
         if status_hit:
             stats["status_hit"] += 1
-        if domain_hit:
+        if expected_status == "allow" and expected_domain and domain_hit:
             stats["domain_hit"] += 1
         if blocked_hit:
             stats["blocked_hit"] += 1
@@ -66,7 +68,9 @@ def verify_guard_dataset_offline() -> dict[str, object]:
                 }
             )
     stats["status_accuracy"] = stats["status_hit"] / stats["total"]
-    stats["domain_accuracy"] = stats["domain_hit"] / stats["total"]
+    stats["domain_accuracy"] = (
+        stats["domain_hit"] / stats["domain_count"] if stats["domain_count"] else None
+    )
     stats["blocked_accuracy"] = stats["blocked_hit"] / stats["total"]
     return stats
 
