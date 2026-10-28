@@ -10,7 +10,10 @@ import type { ChatHistoryItem } from "@/lib/types";
 interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  pending?: boolean;
 }
+
+const HIDDEN_INPUT = "[输入因安全检查未保存]";
 
 function processNote(event: ConsultEvent): string | null {
   if (event.event === "started") return "已受理您的问题，正在分析…";
@@ -65,7 +68,10 @@ export function ChatWindow() {
     // Matching the key also prevents one identity's state being saved for another.
     if (!storageKey || loadedStorageKey !== storageKey) return;
     try {
-      window.localStorage.setItem(storageKey, JSON.stringify({ threadId, messages }));
+      const safeMessages = messages.map((message) =>
+        message.pending ? { role: message.role, content: HIDDEN_INPUT } : message,
+      );
+      window.localStorage.setItem(storageKey, JSON.stringify({ threadId, messages: safeMessages }));
     } catch {
       /* ignore quota errors */
     }
@@ -78,6 +84,23 @@ export function ChatWindow() {
   const evidenceResults = events.find((e) => e.event === "evidence")?.data.results as
     | Array<{ title: string; snippet?: string; score?: number | null; source?: string | null }>
     | undefined;
+
+  useEffect(() => {
+    const done = events.find((event) => event.event === "done");
+    if (!done) return;
+    setMessages((previous) => previous.map((message) =>
+      message.pending
+        ? { role: message.role, content: done.data.input_restricted === false ? message.content : HIDDEN_INPUT }
+        : message,
+    ));
+  }, [events]);
+
+  useEffect(() => {
+    if (!error) return;
+    setMessages((previous) => previous.map((message) =>
+      message.pending ? { role: message.role, content: HIDDEN_INPUT } : message,
+    ));
+  }, [error]);
 
   // Append the assistant reply once a turn completes (multi-turn history).
   useEffect(() => {
@@ -97,9 +120,9 @@ export function ChatWindow() {
     setThreadId(thread);
     const history: ChatHistoryItem[] = messages.map((msg) => ({
       role: msg.role,
-      content: msg.content,
+      content: msg.pending ? HIDDEN_INPUT : msg.content,
     }));
-    setMessages((prev) => [...prev, { role: "user", content: message }]);
+    setMessages((prev) => [...prev, { role: "user", content: message, pending: true }]);
     setInput("");
     void run({ thread_id: thread, message, history });
   };
@@ -263,7 +286,12 @@ export function ChatWindow() {
               />
               {running ? (
                 <button
-                  onClick={cancel}
+                  onClick={() => {
+                    cancel();
+                    setMessages((previous) => previous.map((message) =>
+                      message.pending ? { role: message.role, content: HIDDEN_INPUT } : message,
+                    ));
+                  }}
                   className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground hover:bg-muted"
                   aria-label="停止"
                 >

@@ -43,7 +43,27 @@ try {
   await selectIdentity("customer@clouddesk.demo");
   await page.getByText(question, { exact: true }).waitFor();
   await page.getByText("2 条消息 · 多轮对话中", { exact: true }).waitFor();
-  console.log("PASS: chat survives navigation and reload, and stays scoped to its identity");
+
+  const secret = "synthetic-password-987654";
+  await page.route("**/api/v1/customer-consultations/stream", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await route.continue();
+  });
+  await page.getByRole("textbox", { name: "描述您的问题，支持连续对话…" }).fill(`密码=${secret}`);
+  await page.getByRole("button", { name: "发送" }).click();
+  await page.waitForFunction(() =>
+    Object.keys(localStorage).some((key) => key.startsWith("clouddesk-chat-") &&
+      localStorage.getItem(key)?.includes("[输入因安全检查未保存]")),
+  );
+  const storedWhilePending = await page.evaluate(() => JSON.stringify(localStorage));
+  if (storedWhilePending.includes(secret)) throw new Error("pending credential was persisted locally");
+  await page.getByText("[输入因安全检查未保存]", { exact: true }).waitFor();
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByText("[输入因安全检查未保存]", { exact: true }).waitFor();
+  if ((await page.evaluate(() => JSON.stringify(localStorage))).includes(secret)) {
+    throw new Error("blocked credential remained in local storage");
+  }
+  console.log("PASS: chat persists by identity and blocked credentials stay out of local storage");
 } catch (error) {
   console.error("FAIL: chat persistence smoke:", error instanceof Error ? error.message : error);
   process.exitCode = 1;

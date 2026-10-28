@@ -50,6 +50,7 @@ class CustomerConsultationResult:
     model_error_code: str | None = None
     knowledge_evidence_count: int = 0
     memory_candidate_count: int = 0
+    input_restricted: bool = False
     trace_id: UUID | None = None
     audit_event_ids: list[UUID] = field(default_factory=list)
 
@@ -210,7 +211,7 @@ class CustomerConsultationService:
             model_provider=_usage_provider(_get("model_usage")),
             model_error_code=_error_code(_get("model_error")),
         )
-        result = replace(result, knowledge_evidence_count=len(evidence))
+        result = replace(result, knowledge_evidence_count=len(evidence), input_restricted=input_restricted)
         if self.event_sink is not None:
             await self.event_sink(
                 "completed",

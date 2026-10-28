@@ -96,6 +96,8 @@ async def test_blocked_credentials_are_not_stored_in_conversation(
         response = client.post(endpoint, headers=api_headers, json=payload)
     assert response.status_code == (200 if endpoint.endswith("/stream") else 422)
     assert secret not in response.text
+    if endpoint.endswith("/stream"):
+        assert '"input_restricted": true' in response.text
     assert gateway.call_count == 0
     async with session_factory() as session:
         conversation = await session.scalar(select(Conversation).where(Conversation.thread_id == payload["thread_id"]))
@@ -307,6 +309,7 @@ async def test_customer_consultation_stream_emits_progress_events(
     assert "event: completed" in body
     assert "event: done" in body
     assert "knowledge_evidence_count" in body
+    assert '"input_restricted": false' in body
 
 
 @pytest.mark.asyncio
