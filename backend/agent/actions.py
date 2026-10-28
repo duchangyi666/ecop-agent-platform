@@ -39,8 +39,8 @@ _ACTION_SYSTEM_PROMPT = (
     "- 用户问“我的工单/退款/扣费怎么样了”这类需要看真实数据的，用对应查询动作，系统会去查业务库再回答。\n"
     "- create_ticket：只说“建个工单”而没说是什么问题，ready=false 并在 question 只问一个问题；"
     "已说明具体问题则 ready=true 并在 subject 概括主题。\n"
-    "- request_refund：用户反映重复扣费/要求退款时用此动作；系统会自动核实是否真的存在重复扣费，"
-    "若不存在会如实告知并不退款，因此无需担心误退。若用户只是问退款政策，用 answer。"
+    "- request_refund：用户反映重复扣费/要求退款时用此动作；系统仅识别同一账单的疑似重复付款，"
+    "并创建本地退款申请，不代表已核实真实重复扣费或实际退款。若用户只是问退款政策，用 answer。"
 )
 
 
@@ -238,11 +238,11 @@ class ConversationActionExecutor:
 
     @staticmethod
     def _find_duplicate(payments) -> object | None:
-        """Return the later payment of a same-amount pair within 24h, if any."""
+        """Return a possible duplicate on the same invoice within 24 hours."""
         ordered = sorted(payments, key=lambda p: p.paid_at)
         for i, first in enumerate(ordered):
             for second in ordered[i + 1 :]:
-                if second.amount == first.amount and (
+                if second.invoice_id == first.invoice_id and second.amount == first.amount and (
                     second.paid_at - first.paid_at
                 ) <= timedelta(hours=24):
                     return second
@@ -342,8 +342,8 @@ class ConversationActionExecutor:
             return ActionResult(
                 action="request_refund",
                 summary=(
-                    f"经核实，您确有一笔重复扣费（{duplicate.paid_at:%m-%d} {duplicate.amount} 元，"
-                    "24 小时内出现两笔相同金额）。我已为您创建退款申请，"
+                    f"检测到同一账单可能存在重复扣费（{duplicate.paid_at:%m-%d} {duplicate.amount} 元，"
+                    "24 小时内出现两笔相同金额）。退款申请已登记，"
                     f"退款单号 {refund.id}，当前状态：{status}。"
                     f"{approval_note}"
                 ),

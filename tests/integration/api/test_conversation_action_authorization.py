@@ -98,4 +98,3 @@ async def test_repeated_chat_refund_reuses_approval_across_threads(
             select(ApprovalRequest).where(ApprovalRequest.refund_id == first.refund_id)
         ))
     assert len(approvals) == 1
-
