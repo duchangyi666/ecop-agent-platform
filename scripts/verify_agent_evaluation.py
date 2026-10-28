@@ -118,14 +118,14 @@ async def run_db_evaluations(
         guard_result = await runner.run_guard_evaluation(
             scope=scope,
             dataset_code="agent-guard",
-            limit=guard_limit,
+            max_cases=guard_limit,
         )
         print(f"[guard] {guard_result.metrics}")
 
         correctness_result = await runner.run_correctness_evaluation(
             scope=scope,
             dataset_code="agent-qa",
-            limit=qa_limit,
+            max_cases=qa_limit,
         )
         print(f"[correctness] {correctness_result.metrics}")
     finally:
@@ -137,8 +137,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--offline-only", action="store_true", help="only check guard dataset quality offline")
     parser.add_argument("--tenant-id", type=UUID, default=None)
     parser.add_argument("--database-url", default=os.getenv("DATABASE_URL", get_settings().database_url))
-    parser.add_argument("--qa-limit", type=int, default=3)
-    parser.add_argument("--guard-limit", type=int, default=20)
+    parser.add_argument("--qa-limit", type=int, default=3, help="maximum QA cases (ordered by case key)")
+    parser.add_argument("--guard-limit", type=int, default=20, help="maximum guard cases (ordered by case key)")
     return parser.parse_args()
 
 

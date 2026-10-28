@@ -60,7 +60,10 @@ class AgentEvaluationRunner:
         scope: TenantScope,
         dataset_code: str,
         limit: int = 5,
+        max_cases: int | None = None,
     ) -> EvaluationRunResult:
+        if max_cases is not None and max_cases < 1:
+            raise ValueError("max_cases must be positive")
         judge = AnswerJudge(self.model_gateway)
         async with UnitOfWork(self.session_factory, scope=scope) as uow:
             dataset = await uow.evaluation.get_dataset_by_code(
@@ -77,6 +80,8 @@ class AgentEvaluationRunner:
                 )
                 if case.expected_summary.get("kind") == _QA_KIND
             ]
+            if max_cases is not None:
+                cases = cases[:max_cases]
             if not cases:
                 raise DomainError("evaluation dataset has no qa cases")
 
@@ -167,7 +172,10 @@ class AgentEvaluationRunner:
         scope: TenantScope,
         dataset_code: str,
         limit: int = 5,
+        max_cases: int | None = None,
     ) -> EvaluationRunResult:
+        if max_cases is not None and max_cases < 1:
+            raise ValueError("max_cases must be positive")
         input_guard = InputSecurityGuard()
         domain_guard = DomainGuard()
         async with UnitOfWork(self.session_factory, scope=scope) as uow:
@@ -185,6 +193,8 @@ class AgentEvaluationRunner:
                 )
                 if case.expected_summary.get("kind") == _GUARD_KIND
             ]
+            if max_cases is not None:
+                cases = cases[:max_cases]
             if not cases:
                 raise DomainError("evaluation dataset has no guard cases")
 

@@ -129,6 +129,10 @@ async def test_guard_metrics_count_only_applicable_domain_cases(session_factory,
         await session.commit()
 
     runner = AgentEvaluationRunner(session_factory, retriever=None, model_gateway=None)
+    with pytest.raises(ValueError, match="max_cases must be positive"):
+        await runner.run_guard_evaluation(scope=scope, dataset_code="guard-metrics", max_cases=0)
+    limited = await runner.run_guard_evaluation(scope=scope, dataset_code="guard-metrics", max_cases=1)
+    assert limited.case_count == 1
     result = await runner.run_guard_evaluation(scope=scope, dataset_code="guard-metrics")
     assert result.metrics["status_accuracy"] == 1.0
     assert result.metrics["domain_accuracy"] == 0.5
@@ -146,6 +150,10 @@ async def test_qa_passed_count_matches_per_case_result(session_factory, tenant_a
             input_summary="退款", expected_summary={
                 "kind": "qa", "gold_answer": "退款说明", "document_ids": [str(uuid4())],
             }, tags=[],
+        )
+        await repository.create_case(
+            scope=scope, dataset_id=dataset.id, case_key="other-case",
+            input_summary="工单", expected_summary={"kind": "qa", "gold_answer": "工单"}, tags=[],
         )
         await session.commit()
 
@@ -167,7 +175,8 @@ async def test_qa_passed_count_matches_per_case_result(session_factory, tenant_a
         return "退款说明"
 
     monkeypatch.setattr(runner, "_generate_answer", answer)
-    result = await runner.run_correctness_evaluation(scope=scope, dataset_code="qa-metrics")
+    result = await runner.run_correctness_evaluation(scope=scope, dataset_code="qa-metrics", max_cases=1)
+    assert result.case_count == 1
     assert result.metrics["correctness"] == 1.0
     assert result.metrics["passed_count"] == 0
     async with session_factory() as session:
