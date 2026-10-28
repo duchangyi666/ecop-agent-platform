@@ -54,6 +54,16 @@ class InputSecurityGuard:
         "系统提示词",
         "泄露系统指令",
     )
+    _instruction_override_patterns = (
+        re.compile(
+            r"(?<!不要)(?<!不能)(?<!请勿)(?:忽略|无视|别遵守|不要遵守)"
+            r".{0,12}(?:之前|前面|先前|原有).{0,12}(?:指令|规则|(?:全部|所有)要求)"
+        ),
+        re.compile(
+            r"(?<!not )(?<!don't )\b(?:disregard|ignore)\s+(?:all\s+)?(?:your\s+)?"
+            r"(?:previous|prior|earlier)\s+(?:instructions|rules)\b"
+        ),
+    )
     _credential_patterns = (
         re.compile(r"\bsk-[a-z0-9][a-z0-9_-]{7,}\b"),
         re.compile(r"\bbearer\s+[a-z0-9._-]{8,}\b"),
@@ -82,6 +92,10 @@ class InputSecurityGuard:
         "别人的数据",
         "其他客户的数据",
     )
+    _cross_tenant_export = re.compile(
+        r"(?:把|将)(?:其他|别的|其余)(?:租户|客户).{0,16}"
+        r"(?:数据|记录|账单).{0,12}(?:发给我|给我|导出给我)"
+    )
 
     def evaluate(self, text: str) -> GuardDecision:
         normalized = _normalize(text or "")
@@ -91,7 +105,8 @@ class InputSecurityGuard:
                 code="input_too_long",
                 reason="输入长度超过安全限制",
             )
-        if any(pattern in normalized for pattern in self._prompt_injection_patterns):
+        if (any(pattern in normalized for pattern in self._prompt_injection_patterns)
+                or any(pattern.search(normalized) for pattern in self._instruction_override_patterns)):
             return GuardDecision(
                 status="block",
                 code="prompt_injection",
@@ -103,7 +118,8 @@ class InputSecurityGuard:
                 code="credential_exposure",
                 reason="检测到敏感凭据或支付信息",
             )
-        if any(pattern in normalized for pattern in self._data_exfiltration_patterns):
+        if (any(pattern in normalized for pattern in self._data_exfiltration_patterns)
+                or self._cross_tenant_export.search(normalized)):
             return GuardDecision(
                 status="block",
                 code="data_exfiltration",
