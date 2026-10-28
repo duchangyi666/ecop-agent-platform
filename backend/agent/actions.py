@@ -22,6 +22,7 @@ from backend.agent.policies.risk import HIGH_RISK_REFUND_THRESHOLD
 from backend.agent.tools.billing import BillingTool, RefundToolRequest
 from backend.core.retry import with_retry
 from backend.agent.tools.ticket import TicketCreateRequest, TicketTool
+from backend.auth.permissions import Permission
 from backend.database.base import TenantScope
 from backend.database.unit_of_work import UnitOfWork
 from backend.domain.common import DomainError
@@ -166,6 +167,24 @@ class ConversationActionExecutor:
     ) -> ActionResult | None:
         if decision.action == "answer":
             return None
+        required_permission = {
+            "request_refund": Permission.REFUND_REQUEST,
+            "create_ticket": Permission.TICKET_CREATE,
+        }.get(decision.action)
+        if required_permission is not None:
+            async with UnitOfWork(self.session_factory, scope=scope) as uow:
+                user = (
+                    await uow.identity.get_user_in_tenant(scope=scope, user_id=scope.actor_id)
+                    if scope.actor_id is not None else None
+                )
+                allowed = (
+                    user is not None and user.status == "active"
+                    and await uow.identity.has_permission(
+                        scope=scope, user_id=user.id, permission_code=required_permission,
+                    )
+                )
+            if not allowed:
+                return ActionResult(action=decision.action, summary="当前身份没有执行该操作的权限，请联系人工客服。")
         if decision.action == "request_refund":
             return await self._request_refund(scope=scope, thread_id=thread_id)
         if decision.action == "create_ticket":
