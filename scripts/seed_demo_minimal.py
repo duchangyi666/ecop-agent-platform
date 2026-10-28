@@ -20,7 +20,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -117,6 +117,7 @@ async def _ensure_payment(
     external_payment_id: str,
     amount: Decimal,
     paid_at: datetime,
+    invoice_id: UUID | None = None,
 ) -> Payment:
     payment = await session.scalar(
         select(Payment).where(
@@ -125,21 +126,27 @@ async def _ensure_payment(
         )
     )
     if payment is not None:
+        if invoice_id is not None and payment.invoice_id != invoice_id:
+            raise ValueError("existing demo payment belongs to a different invoice; use a fresh demo database")
         return payment
-    external_invoice_id = f"inv-{external_payment_id}"
-    invoice = await session.scalar(
-        select(Invoice).where(
-            Invoice.tenant_id == tenant.id,
-            Invoice.external_invoice_id == external_invoice_id,
-        )
-    )
+    invoice = None
+    if invoice_id is not None:
+        invoice = await session.scalar(select(Invoice).where(
+            Invoice.id == invoice_id, Invoice.tenant_id == tenant.id, Invoice.customer_id == customer.id,
+        ))
+        if invoice is None:
+            raise ValueError("demo invoice not found for customer")
+    else:
+        invoice = await session.scalar(select(Invoice).where(
+            Invoice.tenant_id == tenant.id, Invoice.external_invoice_id == f"inv-{external_payment_id}",
+        ))
     if invoice is None:
         invoice = Invoice(
             id=uuid4(),
             tenant_id=tenant.id,
             customer_id=customer.id,
             subscription_id=None,
-            external_invoice_id=external_invoice_id,
+            external_invoice_id=f"inv-{external_payment_id}",
             amount=amount,
             currency="CNY",
             status="issued",
@@ -300,6 +307,7 @@ async def main() -> None:
                 external_payment_id="demo-pay-dup-1280-b",
                 amount=Decimal("1280.00"),
                 paid_at=now - timedelta(hours=2),
+                invoice_id=pay_dup_a.invoice_id,
             )
             ticket = await _ensure_ticket(session, tenant, customer, user)
             await session.commit()

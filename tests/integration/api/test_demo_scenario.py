@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest
@@ -9,6 +11,7 @@ from backend.database.models.billing import Customer, CustomerContact, Payment
 from backend.database.models.governance import Document, DocumentVersion, RuntimeTrace
 from backend.database.models.support import Ticket
 from scripts.seed_demo_scenario import seed_demo_scenario
+from scripts.seed_demo_minimal import _ensure_payment
 
 
 @pytest.mark.asyncio
@@ -17,6 +20,28 @@ async def test_demo_scenario_rejects_non_development_modes(monkeypatch, mode) ->
     monkeypatch.setenv("AUTH_MODE", mode)
     with pytest.raises(ValueError, match="AUTH_MODE=dev"):
         await seed_demo_scenario(database_url="invalid-url")
+
+
+@pytest.mark.asyncio
+async def test_demo_duplicate_payments_can_share_an_invoice(session_factory, tenant_a, customer_id):
+    async with session_factory() as session:
+        customer = await session.get(Customer, customer_id)
+        first = await _ensure_payment(
+            session, tenant_a, customer, external_payment_id=f"first-{uuid4().hex}",
+            amount=Decimal("1280.00"), paid_at=datetime.now(timezone.utc),
+        )
+        second_id = f"second-{uuid4().hex}"
+        second = await _ensure_payment(
+            session, tenant_a, customer, external_payment_id=second_id,
+            amount=Decimal("1280.00"), paid_at=datetime.now(timezone.utc), invoice_id=first.invoice_id,
+        )
+        assert second.invoice_id == first.invoice_id
+        with pytest.raises(ValueError, match="different invoice"):
+            await _ensure_payment(
+                session, tenant_a, customer, external_payment_id=second_id,
+                amount=Decimal("1280.00"), paid_at=datetime.now(timezone.utc), invoice_id=uuid4(),
+            )
+        await session.commit()
 
 
 @pytest.mark.asyncio
