@@ -6,7 +6,8 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import func, select
 
-from backend.database.models.billing import Refund
+from backend.database.models.billing import Payment, Refund
+from backend.domain.billing import PaymentStatus
 from backend.domain.common import DomainError
 
 
@@ -67,4 +68,25 @@ async def test_refund_idempotency_key_rejects_changed_parameters(uow, payment, c
             payment_id=uuid4() if changed == "payment" else payment.id,
             idempotency_key="same-key",
             amount=Decimal("21.00") if changed == "amount" else Decimal("20.00"),
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("amount", [Decimal("0.00"), Decimal("-1.00"), Decimal("NaN"), Decimal("Infinity")])
+async def test_refund_repository_rejects_invalid_amount(uow, payment, amount):
+    with pytest.raises(DomainError, match="refund amount"):
+        await uow.billing.create_refund_request(
+            scope=uow.scope, payment_id=payment.id, idempotency_key=f"invalid-{uuid4().hex}", amount=amount,
+        )
+
+
+@pytest.mark.asyncio
+async def test_refund_repository_rejects_failed_payment(uow, payment):
+    stored_payment = await uow.session.get(Payment, payment.id)
+    stored_payment.status = PaymentStatus.FAILED
+    await uow.session.flush()
+    with pytest.raises(DomainError, match="payment"):
+        await uow.billing.create_refund_request(
+            scope=uow.scope, payment_id=payment.id, idempotency_key=f"failed-{uuid4().hex}",
+            amount=Decimal("20.00"),
         )

@@ -92,6 +92,8 @@ class BillingRepository(TenantScopedRepository):
         amount: Decimal,
     ) -> Refund:
         ensured_amount = ensure_money(amount)
+        if not ensured_amount.is_finite() or ensured_amount <= Decimal("0.00"):
+            raise DomainError("refund amount must be positive and finite")
         existing = await self.get_refund_by_idempotency_key(scope=scope, idempotency_key=idempotency_key)
         if existing is not None:
             if existing.payment_id != payment_id or existing.amount != ensured_amount:
@@ -101,6 +103,8 @@ class BillingRepository(TenantScopedRepository):
         payment = await self.get_payment_for_tenant(scope=scope, payment_id=payment_id)
         if payment is None:
             raise DomainError("payment not found in tenant scope")
+        if payment.status is not PaymentStatus.SUCCEEDED:
+            raise DomainError("payment must be succeeded before requesting a refund")
 
         if ensured_amount > payment.amount:
             raise DomainError("refund amount cannot exceed payment amount")
