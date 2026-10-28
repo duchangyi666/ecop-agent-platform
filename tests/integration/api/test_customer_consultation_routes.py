@@ -111,6 +111,36 @@ async def test_blocked_credentials_are_not_stored_in_conversation(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("role", ["user", "assistant"])
+@pytest.mark.parametrize("endpoint", ["/api/v1/customer-consultations", "/api/v1/customer-consultations/stream"])
+async def test_credentials_in_client_history_never_reach_model(
+    customer_consult_client_factory, api_headers, role, endpoint,
+) -> None:
+    payload = _payload("history-secret")
+    payload["history"] = [{"role": role, "content": "密码=synthetic-secret-123"}]
+    class RecordingGateway(FakeModelGateway):
+        def __init__(self):
+            super().__init__(ResponseDraft(answer="test", next_action="finish", confidence=0.9))
+            self.prompts = []
+
+        async def generate_structured(self, **kwargs):
+            self.prompts.append((kwargs["system_prompt"], kwargs["user_prompt"]))
+            return await super().generate_structured(**kwargs)
+
+        def generate_stream(self, **kwargs):
+            self.prompts.append((kwargs["system_prompt"], kwargs["user_prompt"]))
+            return super().generate_stream(**kwargs)
+
+    gateway = RecordingGateway()
+    with customer_consult_client_factory(gateway) as client:
+        response = client.post(endpoint, headers=api_headers, json=payload)
+    assert response.status_code == 200
+    assert gateway.call_count > 0
+    assert all("synthetic-secret-123" not in text for prompts in gateway.prompts for text in prompts)
+    assert "synthetic-secret-123" not in response.text
+
+
+@pytest.mark.asyncio
 async def test_customer_consultation_blocks_sensitive_model_output(
     customer_consult_client_factory,
     api_headers,

@@ -6,7 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.agent.contracts import SpecialistResult, SupervisorDecision
-from backend.agent.guards import DomainDecision, GuardDecision
+from backend.agent.guards import DomainDecision, GuardDecision, InputSecurityGuard
 from backend.database.base import TenantScope
 from backend.llm.contracts import ModelCallError, ModelUsage, ResponseDraft
 
@@ -67,7 +67,11 @@ def create_agent_state(
 ) -> AgentState:
     """Build agent state. `history` carries prior turns so the model can
     answer with multi-turn context; the current user message is appended."""
-    conversation = list(history or [])
+    conversation = [
+        item.model_copy(update={"content": "[历史内容因安全检查已隐藏]"})
+        if InputSecurityGuard.contains_credentials(item.content) else item
+        for item in history or []
+    ]
     conversation.append(ConversationMessage(role="user", content=message))
     return AgentState(
         request_id=request_id,
