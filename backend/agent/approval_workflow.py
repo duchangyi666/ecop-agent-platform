@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -50,6 +51,8 @@ async def resume_refund_after_approval(
                 raise DomainError("approval request not found in tenant scope")
             if approval.status is not ApprovalStatus.PENDING:
                 raise DomainError("approval request is not pending")
+            if approval.expires_at <= datetime.now(timezone.utc):
+                raise DomainError("approval request has expired")
             if approval.action != "approve_refund" or approval.checkpoint_reference != thread_id:
                 raise DomainError("approval request does not match refund workflow")
 

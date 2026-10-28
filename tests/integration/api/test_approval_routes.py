@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
@@ -127,3 +128,31 @@ async def test_approval_rejects_inconsistent_checkpoint(
         assert not list(await session.scalars(
             select(ApprovalAction).where(ApprovalAction.approval_request_id == approval.id)
         ))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("approved", [True, False])
+async def test_expired_refund_approval_rejects_decisions(
+    authorized_api_client, payment, api_headers, session_factory, approved,
+):
+    created = _create_high_risk_refund(authorized_api_client, payment, _high_risk_headers(api_headers))
+    async with session_factory() as session:
+        approval = await session.get(ApprovalRequest, created["approval_request_id"])
+        approval.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        await session.commit()
+
+    response = authorized_api_client.post(
+        f"/api/v1/approvals/{created['approval_request_id']}", headers=api_headers,
+        json={"thread_id": created["thread_id"], "approved": approved, "reason": "expired"},
+    )
+    assert response.status_code == 422
+    async with session_factory() as session:
+        approval = await session.get(ApprovalRequest, created["approval_request_id"])
+        assert approval.status is ApprovalStatus.PENDING
+        assert not list(await session.scalars(
+            select(ApprovalAction).where(ApprovalAction.approval_request_id == approval.id)
+        ))
+        checkpoint = await session.scalar(
+            select(WorkflowCheckpoint).where(WorkflowCheckpoint.thread_id == created["thread_id"])
+        )
+        assert checkpoint.status == "awaiting_approval"
