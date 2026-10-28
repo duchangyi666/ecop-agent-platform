@@ -8,6 +8,8 @@ def test_seed_demo_identity_exposes_explicit_permission_codes() -> None:
         "approval.read",
         "conversation.create",
         "conversation.read",
+        "conversation.read.all",
+        "conversation.write.all",
         "conversation.write",
         "refund.request",
         "refund.approve",

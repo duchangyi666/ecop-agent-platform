@@ -491,6 +491,7 @@ class SupportRepository(TenantScopedRepository):
         scope: TenantScope,
         limit: int = 50,
         status: str | None = None,
+        owner_id: UUID | None = None,
     ) -> list[Conversation]:
         statement = (
             self._tenant_visible(
@@ -500,6 +501,8 @@ class SupportRepository(TenantScopedRepository):
             )
             .options(selectinload(Conversation.messages))
         )
+        if owner_id is not None:
+            statement = statement.where(Conversation.user_id == owner_id)
         if status:
             statement = statement.where(Conversation.status == status)
         statement = statement.order_by(Conversation.started_at.desc()).limit(limit)
@@ -510,6 +513,7 @@ class SupportRepository(TenantScopedRepository):
         *,
         scope: TenantScope,
         conversation_id: UUID,
+        owner_id: UUID | None = None,
     ) -> Conversation | None:
         statement = (
             self._tenant_visible(
@@ -520,6 +524,8 @@ class SupportRepository(TenantScopedRepository):
             .options(selectinload(Conversation.messages))
             .where(Conversation.id == conversation_id)
         )
+        if owner_id is not None:
+            statement = statement.where(Conversation.user_id == owner_id)
         return await self.session.scalar(statement)
 
     async def append_conversation_message(

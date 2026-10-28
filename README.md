@@ -145,7 +145,7 @@ python scripts/seed_demo_accounts.py
 
 | 身份       | 邮箱                      | 权限摘要 |
 | ---------- | ------------------------- | -------- |
-| 平台管理员 | `admin@clouddesk.demo`    | 全部 16 项权限 |
+| 平台管理员 | `admin@clouddesk.demo`    | 全部 18 项权限 |
 | 客服专员   | `agent@clouddesk.demo`    | 咨询、会话、工单、审批查看、知识检索 |
 | 财务审核员 | `finance@clouddesk.demo`  | 咨询、会话查看、退款申请 / 审批、Runtime 查看 |
 | 演示客户   | `customer@clouddesk.demo` | 咨询、会话、工单创建 / 查看、知识检索 |
@@ -347,3 +347,5 @@ scripts/                   # 演示数据生成、账号 seed、检索评测、�
 docs/                      # 架构文档与 API 设计合同
 tests/                     # 单元 / 集成测试（unit · integration/database · api · agent · vectorstore）
 ```
+
+会话接口的普通读写权限仅覆盖当前用户的会话，内部消息需要 `conversation.read.all`；客服跨用户处理需要单独授予 `conversation.write.all`。旧的无用户归属会话仅对具备相应全租户权限的人员可见，已有部署需显式配置新权限。
