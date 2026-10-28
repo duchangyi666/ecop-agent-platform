@@ -170,6 +170,7 @@ class ConversationActionExecutor:
         required_permission = {
             "request_refund": Permission.REFUND_REQUEST,
             "create_ticket": Permission.TICKET_CREATE,
+            "query_ticket_status": Permission.TICKET_READ,
         }.get(decision.action)
         if required_permission is not None:
             async with UnitOfWork(self.session_factory, scope=scope) as uow:

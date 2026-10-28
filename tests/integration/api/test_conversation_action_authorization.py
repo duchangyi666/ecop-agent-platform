@@ -16,9 +16,10 @@ from backend.database.models.identity import User
     [
         ("request_refund", Permission.REFUND_REQUEST, "_request_refund"),
         ("create_ticket", Permission.TICKET_CREATE, "_create_ticket"),
+        ("query_ticket_status", Permission.TICKET_READ, "_query_ticket_status"),
     ],
 )
-async def test_conversation_write_action_requires_its_own_permission(
+async def test_conversation_action_requires_its_own_permission(
     session_factory, tenant_a, tenant_a_user, grant_permission, monkeypatch,
     action, permission, method,
 ):
