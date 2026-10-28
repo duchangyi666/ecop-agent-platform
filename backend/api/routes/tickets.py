@@ -69,12 +69,14 @@ def _event_item(event) -> TicketEventItem:
     )
 
 
-def _detail_response(request_id: str, ticket) -> TicketDetailResponse:
+def _detail_response(request_id: str, ticket, *, include_internal: bool = True) -> TicketDetailResponse:
     return TicketDetailResponse(
         request_id=request_id,
         ticket=_ticket_item(ticket),
-        messages=[_message_item(item) for item in sorted(ticket.messages, key=lambda item: item.created_at)],
-        events=[_event_item(item) for item in sorted(ticket.events, key=lambda item: item.occurred_at)],
+        messages=[_message_item(item) for item in sorted(ticket.messages, key=lambda item: item.created_at)
+                  if include_internal or item.visibility == "public"],
+        events=[_event_item(item) for item in sorted(ticket.events, key=lambda item: item.occurred_at)]
+               if include_internal else [],
     )
 
 
@@ -133,8 +135,14 @@ async def list_tickets(
     limit: int = Query(default=50, ge=1, le=200),
 ) -> TicketListResponse:
     async with UnitOfWork(session_factory, scope=context.scope) as uow:
+        actor_id = context.scope.actor_id
+        assert actor_id is not None
+        can_read_all = await uow.identity.has_permission(
+            scope=context.scope, user_id=actor_id, permission_code=Permission.TICKET_READ_ALL
+        )
         tickets = await uow.support.list_tickets(
             scope=context.scope,
+            owner_id=None if can_read_all else actor_id,
             limit=limit,
             status=status_filter,
         )
@@ -151,16 +159,22 @@ async def get_ticket(
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
 ) -> TicketDetailResponse:
     async with UnitOfWork(session_factory, scope=context.scope) as uow:
+        actor_id = context.scope.actor_id
+        assert actor_id is not None
+        can_read_all = await uow.identity.has_permission(
+            scope=context.scope, user_id=actor_id, permission_code=Permission.TICKET_READ_ALL
+        )
         ticket = await uow.support.get_ticket_detail(
             scope=context.scope,
             ticket_id=ticket_id,
+            owner_id=None if can_read_all else actor_id,
         )
     if ticket is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "ticket_not_found", "message": "ticket not found"},
         )
-    return _detail_response(request_id=context.request_id, ticket=ticket)
+    return _detail_response(request_id=context.request_id, ticket=ticket, include_internal=can_read_all)
 
 
 @router.patch("/tickets/{ticket_id}", response_model=TicketDetailResponse)

@@ -3,6 +3,10 @@ from __future__ import annotations
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import select
+
+from backend.database.models.billing import CustomerContact
+from backend.database.models.identity import Permission, User, UserRole
 
 
 def _payload(customer_id, prefix: str) -> dict[str, str]:
@@ -77,3 +81,36 @@ async def test_ticket_read_route_requires_permission(api_client, api_headers, cu
     response = api_client.get("/api/v1/tickets", headers=api_headers)
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "permission_denied"
+
+
+@pytest.mark.asyncio
+async def test_ticket_read_respects_customer_association_and_internal_visibility(
+    ticket_ops_api_client, api_headers, tenant_a, tenant_a_user, customer_id, session_factory,
+):
+    created = ticket_ops_api_client.post("/api/v1/tickets", headers=api_headers, json=_payload(customer_id, "scope"))
+    assert created.status_code == 201, created.text
+    ticket_id = created.json()["ticket_id"]
+    other_id = uuid4()
+    async with session_factory() as session:
+        session.add(User(id=other_id, tenant_id=tenant_a.id, email=f"{other_id}@example.com", display_name="customer", status="active"))
+        read_role = await session.scalar(select(Permission.role_id).where(
+            Permission.tenant_id == tenant_a.id, Permission.code == "ticket.read"
+        ))
+        session.add(UserRole(tenant_id=tenant_a.id, user_id=other_id, role_id=read_role))
+        await session.commit()
+    headers = {**api_headers, "X-Actor-Id": str(other_id)}
+    url = f"/api/v1/tickets/{ticket_id}"
+    assert ticket_ops_api_client.get(url, headers=headers).status_code == 404
+    assert ticket_ops_api_client.get("/api/v1/tickets", headers=headers).json()["tickets"] == []
+    async with session_factory() as session:
+        session.add(CustomerContact(tenant_id=tenant_a.id, customer_id=customer_id, user_id=other_id,
+                                    channel="email", masked_value="test", contact_hash=uuid4().hex,
+                                    preferred_language="zh"))
+        await session.commit()
+    owner_view = ticket_ops_api_client.get(url, headers=headers)
+    assert owner_view.status_code == 200
+    assert owner_view.json()["messages"] == []
+    assert owner_view.json()["events"] == []
+    assert any(item["ticket_id"] == ticket_id for item in ticket_ops_api_client.get("/api/v1/tickets", headers=headers).json()["tickets"])
+    staff_view = ticket_ops_api_client.get(url, headers=api_headers).json()
+    assert staff_view["messages"] and staff_view["events"]

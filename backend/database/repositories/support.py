@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.database.base import TenantScope
-from backend.database.models.billing import Customer, Refund
+from backend.database.models.billing import Customer, CustomerContact, Refund
 from backend.database.models.identity import User
 from backend.database.repositories.base import TenantScopedRepository
 from backend.database.models.support import (
@@ -606,12 +606,19 @@ class SupportRepository(TenantScopedRepository):
         scope: TenantScope,
         limit: int = 50,
         status: str | None = None,
+        owner_id: UUID | None = None,
     ) -> list[Ticket]:
         statement = self._tenant_visible(
             select(Ticket),
             Ticket,
             scope=scope,
         )
+        if owner_id is not None:
+            statement = statement.where(Ticket.customer_id.in_(select(CustomerContact.customer_id).where(
+                CustomerContact.tenant_id == scope.tenant_id,
+                CustomerContact.user_id == owner_id,
+                CustomerContact.deleted_at.is_(None),
+            )))
         if status:
             statement = statement.where(Ticket.status == status)
         statement = statement.order_by(Ticket.updated_at.desc()).limit(limit)
@@ -622,6 +629,7 @@ class SupportRepository(TenantScopedRepository):
         *,
         scope: TenantScope,
         ticket_id: UUID,
+        owner_id: UUID | None = None,
     ) -> Ticket | None:
         statement = (
             self._tenant_visible(
@@ -636,6 +644,12 @@ class SupportRepository(TenantScopedRepository):
             )
             .where(Ticket.id == ticket_id)
         )
+        if owner_id is not None:
+            statement = statement.where(Ticket.customer_id.in_(select(CustomerContact.customer_id).where(
+                CustomerContact.tenant_id == scope.tenant_id,
+                CustomerContact.user_id == owner_id,
+                CustomerContact.deleted_at.is_(None),
+            )))
         return await self.session.scalar(statement)
 
     async def update_ticket_metadata(

@@ -106,6 +106,7 @@ async def ticket_api_client(api_client, grant_permission, tenant_a_user):
 
 @pytest_asyncio.fixture
 async def ticket_ops_api_client(api_client, grant_permission, tenant_a_user):
+    await grant_permission(tenant_a_user.id, "ticket.read.all")
     await grant_permission(tenant_a_user.id, "ticket.create")
     await grant_permission(tenant_a_user.id, "ticket.read")
     await grant_permission(tenant_a_user.id, "ticket.update")
