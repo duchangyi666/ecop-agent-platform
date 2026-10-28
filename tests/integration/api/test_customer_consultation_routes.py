@@ -7,8 +7,8 @@ import pytest_asyncio
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from backend.database.models.support import AuditLog
-from backend.database.models.governance import Document
+from backend.database.models.support import AuditLog, Conversation, ConversationMessage
+from backend.database.models.governance import Document, MemoryRecord
 from backend.llm.contracts import ModelCallError, ResponseDraft
 from backend.llm.errors import ModelGatewayError
 from backend.llm.fake import FakeModelGateway
@@ -81,6 +81,33 @@ async def test_customer_consultation_requires_permission(api_client, api_headers
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "permission_denied"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("endpoint", ["/api/v1/customer-consultations", "/api/v1/customer-consultations/stream"])
+async def test_blocked_credentials_are_not_stored_in_conversation(
+    customer_consult_client_factory, api_headers, session_factory, endpoint,
+) -> None:
+    payload = _payload("blocked-secret")
+    secret = "synthetic-password-987654"
+    payload["message"] = f"密码={secret} 我偏好使用中文沟通"
+    gateway = FakeModelGateway(ResponseDraft(answer="test", next_action="finish", confidence=0.9))
+    with customer_consult_client_factory(gateway) as client:
+        response = client.post(endpoint, headers=api_headers, json=payload)
+    assert response.status_code == (200 if endpoint.endswith("/stream") else 422)
+    assert secret not in response.text
+    assert gateway.call_count == 0
+    async with session_factory() as session:
+        conversation = await session.scalar(select(Conversation).where(Conversation.thread_id == payload["thread_id"]))
+        assert conversation is not None
+        messages = list(await session.scalars(
+            select(ConversationMessage).where(ConversationMessage.conversation_id == conversation.id)
+        ))
+        assert secret not in conversation.subject
+        assert messages and all(secret not in message.body for message in messages)
+        assert not list(await session.scalars(
+            select(MemoryRecord).where(MemoryRecord.tenant_id == conversation.tenant_id)
+        ))
 
 
 @pytest.mark.asyncio

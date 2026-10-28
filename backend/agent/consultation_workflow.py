@@ -198,6 +198,9 @@ class CustomerConsultationService:
             (message.content for message in reversed(request.state.conversation) if message.role == "user"),
             "",
         )
+        guard_status = _decision_value(_get("guard_decision"), "status")
+        input_restricted = guard_status in {"block", "human_handoff"}
+        persisted_message = "[输入因安全检查未保存]" if input_restricted else user_message
         result = CustomerConsultationResult(
             thread_id=request.thread_id,
             status=_get("status", "completed"),
@@ -234,7 +237,7 @@ class CustomerConsultationService:
                 ).hexdigest(),
             )
             memory_records: list[MemoryRecord] = []
-            if self.memory_service is not None:
+            if self.memory_service is not None and not input_restricted:
                 memory_records = await self.memory_service.capture_in_uow(
                     uow,
                     scope=scope,
@@ -280,7 +283,7 @@ class CustomerConsultationService:
                     customer_id=customer_id,
                     user_id=scope.actor_id,
                     channel="ai_chat",
-                    subject=(user_message[:255] or "智能客服对话"),
+                    subject=(persisted_message[:255] or "智能客服对话"),
                 )
                 conversation.thread_id = request.thread_id
             await uow.support.append_conversation_message(
@@ -289,7 +292,7 @@ class CustomerConsultationService:
                 author_id=scope.actor_id,
                 author_type="user",
                 role="user",
-                body=user_message[:4000],
+                body=persisted_message[:4000],
                 visibility="public",
             )
             if result.final_response:
