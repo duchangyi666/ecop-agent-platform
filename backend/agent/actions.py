@@ -278,6 +278,11 @@ class ConversationActionExecutor:
                 )
             # Idempotency keyed by the payment so the same duplicate charge is
             # never refunded twice, regardless of conversation thread/turn.
+            locked_payment = await uow.billing.get_payment_for_tenant(
+                scope=scope, payment_id=duplicate.id, for_update=True,
+            )
+            if locked_payment is None or locked_payment.customer_id != customer_id:
+                raise DomainError("payment not found in customer scope")
             idempotency_key = f"chat-refund-{duplicate.id}"
             try:
                 refund = await tool.request(
@@ -294,20 +299,16 @@ class ConversationActionExecutor:
             approval_request_id: UUID | None = None
             approval_note = ""
             if duplicate.amount >= HIGH_RISK_REFUND_THRESHOLD:
-                checkpoint = await uow.governance.get_workflow_checkpoint(
-                    scope=scope, thread_id=thread_id
-                )
-                existing_approval_id = (
-                    (checkpoint.state_summary or {}).get("approval_request_id")
-                    if checkpoint is not None
-                    else None
-                )
-                if existing_approval_id:
-                    approval_request_id = UUID(str(existing_approval_id))
+                existing_approval = await uow.support.get_refund_approval(scope=scope, refund_id=refund.id)
+                if existing_approval is not None:
+                    approval_request_id = existing_approval.id
                     approval_note = (
-                        f" 该金额需要财务经理审批，审批单 {approval_request_id} 正在等待处理。"
+                        f" 该退款已有审批单 {approval_request_id}，请查看审批记录了解当前状态。"
                     )
                 else:
+                    checkpoint = await uow.governance.get_workflow_checkpoint(scope=scope, thread_id=thread_id)
+                    if checkpoint is not None:
+                        raise DomainError("workflow thread is already associated with another request")
                     approval = await uow.support.create_refund_approval_request(
                         scope=scope,
                         refund_id=refund.id,

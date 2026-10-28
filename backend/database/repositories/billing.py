@@ -20,8 +20,12 @@ class BillingRepository(TenantScopedRepository):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(session)
 
-    async def get_payment_for_tenant(self, *, scope: TenantScope, payment_id: UUID) -> Payment | None:
+    async def get_payment_for_tenant(
+        self, *, scope: TenantScope, payment_id: UUID, for_update: bool = False,
+    ) -> Payment | None:
         statement = self._tenant_visible(select(Payment), Payment, scope=scope).where(Payment.id == payment_id)
+        if for_update:
+            statement = statement.with_for_update().execution_options(populate_existing=True)
         return await self.session.scalar(statement)
 
     async def find_duplicate_charge(

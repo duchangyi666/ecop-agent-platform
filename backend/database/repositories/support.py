@@ -371,6 +371,13 @@ class SupportRepository(TenantScopedRepository):
             for_update=for_update,
         )
 
+    async def get_refund_approval(self, *, scope: TenantScope, refund_id: UUID) -> ApprovalRequest | None:
+        statement = self._tenant_visible(select(ApprovalRequest), ApprovalRequest, scope=scope).where(
+            ApprovalRequest.refund_id == refund_id,
+            ApprovalRequest.action == "approve_refund",
+        ).order_by(ApprovalRequest.created_at, ApprovalRequest.id).limit(1)
+        return await self.session.scalar(statement)
+
     async def append_approval_action(
         self,
         *,
