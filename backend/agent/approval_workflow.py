@@ -44,6 +44,7 @@ async def resume_refund_after_approval(
             approval = await uow.support.get_approval_request_for_tenant(
                 scope=actor_scope,
                 approval_request_id=approval_request_id,
+                for_update=True,
             )
             if approval is None:
                 raise DomainError("approval request not found in tenant scope")

@@ -111,12 +111,16 @@ class SupportRepository(TenantScopedRepository):
             raise DomainError("actor not found in tenant scope")
         return stored_user_id
 
-    async def _get_approval_request_for_tenant(self, *, scope: TenantScope, approval_request_id: UUID) -> ApprovalRequest | None:
+    async def _get_approval_request_for_tenant(
+        self, *, scope: TenantScope, approval_request_id: UUID, for_update: bool = False,
+    ) -> ApprovalRequest | None:
         statement = (
             self._tenant_visible(select(ApprovalRequest), ApprovalRequest, scope=scope)
             .options(selectinload(ApprovalRequest.actions))
             .where(ApprovalRequest.id == approval_request_id)
         )
+        if for_update:
+            statement = statement.with_for_update().execution_options(populate_existing=True)
         return await self.session.scalar(statement)
 
     async def create_ticket(
@@ -359,10 +363,12 @@ class SupportRepository(TenantScopedRepository):
         *,
         scope: TenantScope,
         approval_request_id: UUID,
+        for_update: bool = False,
     ) -> ApprovalRequest | None:
         return await self._get_approval_request_for_tenant(
             scope=scope,
             approval_request_id=approval_request_id,
+            for_update=for_update,
         )
 
     async def append_approval_action(
@@ -374,7 +380,9 @@ class SupportRepository(TenantScopedRepository):
         reason: str,
         changes: dict[str, Any],
     ) -> ApprovalAction:
-        approval_request = await self._get_approval_request_for_tenant(scope=scope, approval_request_id=approval_request_id)
+        approval_request = await self._get_approval_request_for_tenant(
+            scope=scope, approval_request_id=approval_request_id, for_update=True,
+        )
         if approval_request is None:
             raise DomainError("approval request not found in tenant scope")
         stored_actor_id = await self._get_user_id_in_tenant_or_none(scope=scope, user_id=scope.actor_id)
