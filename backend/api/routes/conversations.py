@@ -3,7 +3,6 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.api.dependencies import (
@@ -20,7 +19,6 @@ from backend.api.schemas import (
     ConversationMessageItem,
 )
 from backend.auth.permissions import Permission
-from backend.database.models.billing import CustomerContact
 from backend.database.unit_of_work import UnitOfWork
 
 router = APIRouter(prefix="/api/v1/conversations", tags=["conversations"])
@@ -90,13 +88,10 @@ async def create_conversation(
                     status_code=403, detail={"code": "permission_denied", "message": "cannot create a conversation for another user"}
                 )
             if payload.customer_id is not None:
-                contact = await uow.session.scalar(select(CustomerContact.id).where(
-                    CustomerContact.tenant_id == context.scope.tenant_id,
-                    CustomerContact.user_id == actor_id,
-                    CustomerContact.customer_id == payload.customer_id,
-                    CustomerContact.deleted_at.is_(None),
-                ).limit(1))
-                if contact is None:
+                has_customer = await uow.identity.user_has_customer(
+                    scope=context.scope, user_id=actor_id, customer_id=payload.customer_id
+                )
+                if not has_customer:
                     raise HTTPException(
                         status_code=403, detail={"code": "permission_denied", "message": "customer is not associated with the current user"}
                     )

@@ -145,7 +145,7 @@ python scripts/seed_demo_accounts.py
 
 | 身份       | 邮箱                      | 权限摘要 |
 | ---------- | ------------------------- | -------- |
-| 平台管理员 | `admin@clouddesk.demo`    | 全部 19 项权限 |
+| 平台管理员 | `admin@clouddesk.demo`    | 全部 20 项权限 |
 | 客服专员   | `agent@clouddesk.demo`    | 咨询、会话、工单、审批查看、知识检索 |
 | 财务审核员 | `finance@clouddesk.demo`  | 咨询、会话查看、退款申请 / 审批、Runtime 查看 |
 | 演示客户   | `customer@clouddesk.demo` | 咨询、会话、工单创建 / 查看、知识检索 |
@@ -350,4 +350,4 @@ tests/                     # 单元 / 集成测试（unit · integration/databas
 
 会话接口的普通读写权限仅覆盖当前用户的会话，内部消息需要 `conversation.read.all`；客服跨用户处理需要单独授予 `conversation.write.all`。旧的无用户归属会话仅对具备相应全租户权限的人员可见，已有部署需显式配置新权限。
 
-普通工单读取权限仅覆盖当前用户关联客户的工单，内部消息和处理事件需要 `ticket.read.all`。已有部署需要为相应客服角色显式配置该权限。
+普通工单创建权限仅允许为当前用户关联的客户创建工单，客服跨客户创建需要 `ticket.create.all`。普通工单读取权限仅覆盖当前用户关联客户的工单，内部消息和处理事件需要 `ticket.read.all`。已有部署需要为相应客服角色显式配置该权限。

@@ -19,6 +19,7 @@ class Permission(str):
     CONVERSATION_WRITE_ALL = "conversation.write.all"
     CONVERSATION_WRITE = "conversation.write"
     TICKET_CREATE = "ticket.create"
+    TICKET_CREATE_ALL = "ticket.create.all"
     TICKET_READ = "ticket.read"
     TICKET_READ_ALL = "ticket.read.all"
     TICKET_UPDATE = "ticket.update"
@@ -41,6 +42,7 @@ ALL_PERMISSIONS: Final[tuple[str, ...]] = (
     Permission.CONVERSATION_READ_ALL,
     Permission.CONVERSATION_WRITE_ALL,
     Permission.TICKET_CREATE,
+    Permission.TICKET_CREATE_ALL,
     Permission.TICKET_READ,
     Permission.TICKET_READ_ALL,
     Permission.TICKET_UPDATE,
@@ -66,6 +68,7 @@ ROLE_PERMISSIONS: Final[dict[str, frozenset[str]]] = {
             Permission.CONVERSATION_READ_ALL,
             Permission.CONVERSATION_WRITE_ALL,
             Permission.TICKET_CREATE,
+            Permission.TICKET_CREATE_ALL,
             Permission.TICKET_READ,
             Permission.TICKET_READ_ALL,
             Permission.TICKET_UPDATE,
@@ -86,6 +89,7 @@ ROLE_PERMISSIONS: Final[dict[str, frozenset[str]]] = {
             Permission.CONVERSATION_READ_ALL,
             Permission.CONVERSATION_WRITE_ALL,
             Permission.TICKET_CREATE,
+            Permission.TICKET_CREATE_ALL,
             Permission.TICKET_READ,
             Permission.TICKET_READ_ALL,
             Permission.TICKET_UPDATE,

@@ -87,6 +87,19 @@ async def create_ticket(
     context: RequestContext = Depends(require_permission(Permission.TICKET_CREATE)),
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
 ) -> TicketResponse:
+    async with UnitOfWork(session_factory, scope=context.scope) as uow:
+        actor_id = context.scope.actor_id
+        assert actor_id is not None
+        can_create_all = await uow.identity.has_permission(
+            scope=context.scope, user_id=actor_id, permission_code=Permission.TICKET_CREATE_ALL
+        )
+        if not can_create_all and not await uow.identity.user_has_customer(
+            scope=context.scope, user_id=actor_id, customer_id=payload.customer_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"code": "permission_denied", "message": "customer is not associated with the current user"},
+            )
     result = await TicketWorkflowService(session_factory).run(
         TicketWorkflowRequest(
             thread_id=payload.thread_id,

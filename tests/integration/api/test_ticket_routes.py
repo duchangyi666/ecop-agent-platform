@@ -4,6 +4,8 @@ from uuid import uuid4
 
 import pytest
 
+from backend.database.models.billing import CustomerContact
+
 
 def _payload(customer_id, prefix: str, message: str = "请处理登录问题") -> dict[str, str]:
     return {
@@ -68,3 +70,19 @@ async def test_ticket_route_blocks_unsafe_input_before_creation(
     body = response.json()
     assert body["error"]["code"] == "security_blocked"
     assert "sk-test-123456789" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_ticket_create_requires_customer_association(
+    api_client, api_headers, tenant_a, tenant_a_user, customer_id, session_factory, grant_permission,
+):
+    await grant_permission(tenant_a_user.id, "ticket.create")
+    denied = api_client.post("/api/v1/tickets", headers=api_headers, json=_payload(customer_id, "denied"))
+    assert denied.status_code == 403
+    async with session_factory() as session:
+        session.add(CustomerContact(tenant_id=tenant_a.id, customer_id=customer_id, user_id=tenant_a_user.id,
+                                    channel="email", masked_value="test", contact_hash=uuid4().hex,
+                                    preferred_language="zh"))
+        await session.commit()
+    allowed = api_client.post("/api/v1/tickets", headers=api_headers, json=_payload(customer_id, "allowed"))
+    assert allowed.status_code == 201, allowed.text

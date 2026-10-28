@@ -15,6 +15,7 @@ def test_seed_demo_identity_exposes_explicit_permission_codes() -> None:
         "refund.approve",
         "customer.consult",
         "ticket.create",
+        "ticket.create.all",
         "ticket.read",
         "ticket.read.all",
         "ticket.update",
