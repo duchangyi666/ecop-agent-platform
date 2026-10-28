@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import asdict, is_dataclass
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
@@ -16,6 +17,7 @@ from backend.agent.runtime import WorkflowResult
 from backend.agent.state import AgentState
 from backend.agent.tools.billing import BillingTool, RefundToolRequest
 from backend.database.unit_of_work import UnitOfWork
+from backend.domain.approval import ApprovalStatus
 from backend.domain.common import DomainError
 
 
@@ -212,14 +214,22 @@ class RefundWorkflowService:
                     or checkpoint.refund_idempotency_key != request.refund_idempotency_key
                 ):
                     raise DomainError("refund approval is associated with another workflow")
+                retry_status = checkpoint.status
+                retry_state = dict(summary)
+                if (
+                    existing_approval.status is ApprovalStatus.PENDING
+                    and existing_approval.expires_at <= datetime.now(timezone.utc)
+                ):
+                    retry_status = "human_handoff"
+                    retry_state.update(next_action="human_handoff", reason="审批已过期，请联系人工处理。")
                 await uow.governance.complete_runtime_trace(
-                    trace_id=trace.id, status=checkpoint.status, error_summary=None,
+                    trace_id=trace.id, status=retry_status, error_summary=None,
                 )
                 return WorkflowResult(
                     thread_id=request.thread_id,
-                    status=checkpoint.status,
+                    status=retry_status,
                     refund_idempotency_key=request.refund_idempotency_key,
-                    state=dict(summary),
+                    state=retry_state,
                     refund_id=refund.id,
                     approval_request_id=existing_approval.id,
                     trace_id=trace.id,

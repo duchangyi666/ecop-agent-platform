@@ -131,6 +131,28 @@ async def test_blocked_retry_does_not_overwrite_pending_refund(authorized_api_cl
 
 
 @pytest.mark.asyncio
+async def test_refund_retry_reports_expired_approval_as_human_handoff(
+    authorized_api_client, payment, api_headers, session_factory,
+):
+    payload = {
+        "thread_id": f"expired-{uuid4().hex}", "payment_id": str(payment.id), "amount": "20.00",
+        "refund_idempotency_key": f"expired-{uuid4().hex}", "message": "需要审批的退款",
+    }
+    headers = _high_risk_headers(api_headers)
+    created = authorized_api_client.post("/api/v1/refunds", headers=headers, json=payload)
+    assert created.status_code == 202
+    async with session_factory() as session:
+        approval = await session.get(ApprovalRequest, created.json()["approval_request_id"])
+        approval.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        await session.commit()
+    retry = authorized_api_client.post("/api/v1/refunds", headers=headers, json=payload)
+    assert retry.status_code == 202
+    assert retry.json()["status"] == "human_handoff"
+    assert retry.json()["approval_request_id"] == created.json()["approval_request_id"]
+    assert "过期" in retry.json()["reason"]
+
+
+@pytest.mark.asyncio
 async def test_approval_cannot_resume_another_refund_workflow(
     authorized_api_client, payment, api_headers, session_factory,
 ):
