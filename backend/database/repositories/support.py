@@ -7,7 +7,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -683,6 +683,7 @@ class SupportRepository(TenantScopedRepository):
         scope: TenantScope,
         limit: int = 50,
         status: str | None = None,
+        as_of: datetime | None = None,
     ) -> list[ApprovalRequest]:
         statement = (
             self._tenant_visible(
@@ -692,7 +693,18 @@ class SupportRepository(TenantScopedRepository):
             )
             .options(selectinload(ApprovalRequest.actions))
         )
-        if status:
+        if status == ApprovalStatus.PENDING.value:
+            statement = statement.where(
+                ApprovalRequest.status == ApprovalStatus.PENDING,
+                ApprovalRequest.expires_at > (as_of or datetime.now(timezone.utc)),
+            )
+        elif status == ApprovalStatus.EXPIRED.value:
+            statement = statement.where(or_(
+                ApprovalRequest.status == ApprovalStatus.EXPIRED,
+                and_(ApprovalRequest.status == ApprovalStatus.PENDING,
+                     ApprovalRequest.expires_at <= (as_of or datetime.now(timezone.utc))),
+            ))
+        elif status:
             statement = statement.where(ApprovalRequest.status == status)
         statement = statement.order_by(ApprovalRequest.expires_at).limit(limit)
         return list(await self.session.scalars(statement))
