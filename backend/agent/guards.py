@@ -97,11 +97,6 @@ class InputSecurityGuard:
         r"(?:数据|记录|账单).{0,12}(?:发给我|给我|导出给我)"
     )
 
-    @classmethod
-    def contains_credentials(cls, text: str) -> bool:
-        normalized = _normalize(text or "")
-        return any(pattern.search(normalized) for pattern in cls._credential_patterns)
-
     def evaluate(self, text: str) -> GuardDecision:
         normalized = _normalize(text or "")
         if len(text or "") > self.MAX_INPUT_LENGTH:

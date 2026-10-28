@@ -67,9 +67,10 @@ def create_agent_state(
 ) -> AgentState:
     """Build agent state. `history` carries prior turns so the model can
     answer with multi-turn context; the current user message is appended."""
+    guard = InputSecurityGuard()
     conversation = [
         item.model_copy(update={"content": "[历史内容因安全检查已隐藏]"})
-        if InputSecurityGuard.contains_credentials(item.content) else item
+        if guard.evaluate(item.content).status != "allow" else item
         for item in history or []
     ]
     conversation.append(ConversationMessage(role="user", content=message))
