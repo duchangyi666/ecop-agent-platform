@@ -7,8 +7,10 @@ import pytest
 from sqlalchemy import select
 
 from backend.database.models.governance import WorkflowCheckpoint
+from backend.database.models.identity import User
 from backend.database.models.support import ApprovalAction, ApprovalRequest
 from backend.domain.approval import ApprovalStatus
+from scripts.seed_demo_identity import seed_demo_identity
 
 
 def _high_risk_headers(api_headers: dict[str, str]) -> dict[str, str]:
@@ -233,3 +235,40 @@ async def test_expired_refund_approval_rejects_decisions(
             select(WorkflowCheckpoint).where(WorkflowCheckpoint.thread_id == created["thread_id"])
         )
         assert checkpoint.status == "awaiting_approval"
+
+
+@pytest.mark.asyncio
+async def test_authorized_other_tenant_cannot_read_or_decide_approval(
+    authorized_api_client, payment, api_headers, session_factory, tenant_b, database_url,
+):
+    created = _create_high_risk_refund(authorized_api_client, payment, _high_risk_headers(api_headers))
+    other_user = User(
+        id=uuid4(), tenant_id=tenant_b.id, email=f"reviewer-{uuid4().hex}@example.invalid",
+        display_name="Other tenant reviewer", status="active",
+    )
+    async with session_factory() as session:
+        session.add(other_user)
+        await session.commit()
+    await seed_demo_identity(
+        database_url=database_url, tenant_id=tenant_b.id, user_id=other_user.id,
+        permission_codes={"approval.read", "refund.approve"},
+    )
+    headers = {"X-Tenant-Id": str(tenant_b.id), "X-Actor-Id": str(other_user.id), "X-Actor-Type": "user"}
+    url = f"/api/v1/approvals/{created['approval_request_id']}"
+    assert authorized_api_client.get(url, headers=headers).status_code == 404
+    attempt = authorized_api_client.post(
+        url, headers=headers,
+        json={"thread_id": created["thread_id"], "approved": True, "reason": "cross-tenant"},
+    )
+    assert attempt.status_code == 422
+    async with session_factory() as session:
+        approval = await session.get(ApprovalRequest, created["approval_request_id"])
+        assert approval.status is ApprovalStatus.PENDING
+        assert not list(await session.scalars(
+            select(ApprovalAction).where(ApprovalAction.approval_request_id == approval.id)
+        ))
+    decision = authorized_api_client.post(
+        url, headers=api_headers,
+        json={"thread_id": created["thread_id"], "approved": True, "reason": "verified"},
+    )
+    assert decision.status_code == 200, decision.text
