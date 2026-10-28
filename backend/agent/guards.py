@@ -67,7 +67,7 @@ class InputSecurityGuard:
     _credential_patterns = (
         re.compile(r"\bsk-[a-z0-9][a-z0-9_-]{7,}\b"),
         re.compile(r"\bbearer\s+[a-z0-9._-]{8,}\b"),
-        re.compile(r"(?:api[\s_-]?key|password|passwd|secret|token)\s*[:=]\s*\S+"),
+        re.compile(r"(?:api[\s_-]?key|password|passwd|secret|token|密码|口令)\s*[:=]\s*\S+"),
         re.compile(r"(?<!\d)(?:\d[ -]?){13,19}(?!\d)"),
     )
     _unsafe_action_patterns = (

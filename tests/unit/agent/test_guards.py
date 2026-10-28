@@ -39,6 +39,13 @@ def test_credentials_are_blocked_without_echoing_secret_values() -> None:
     assert secret not in decision.reason
 
 
+@pytest.mark.parametrize("message", ["密码=demo-password-987 请帮我查账户", "口令：example-password"])
+def test_chinese_labeled_credentials_are_blocked(message) -> None:
+    decision = InputSecurityGuard().evaluate(message)
+    assert decision.code == "credential_exposure"
+    assert message not in decision.reason
+
+
 def test_bearer_and_card_like_values_are_blocked() -> None:
     bearer = InputSecurityGuard().evaluate("Authorization: Bearer abcdefghijklmnop")
     card = InputSecurityGuard().evaluate("卡号 6222 0202 0202 0202")
