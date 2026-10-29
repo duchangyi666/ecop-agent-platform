@@ -81,7 +81,9 @@ def _make_retrieve_node(
                     ],
                 },
             )
-        return {"knowledge_evidence": evidence}
+        from backend.memory.service import MemoryService
+        memories = await MemoryService(session_factory).recall(scope=state.tenant_scope)
+        return {"knowledge_evidence": evidence, "recalled_memories": memories}
 
     return retrieve_node
 

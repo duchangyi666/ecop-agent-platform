@@ -119,3 +119,14 @@ def test_streaming_prompt_does_not_request_structured_json() -> None:
     assert "请输出结构化 JSON" in structured_system
     assert "请输出结构化 JSON" not in stream_system
     assert "不要输出 JSON" in stream_system
+
+
+def test_recalled_preferences_are_labeled_as_untrusted_context():
+    system, user = _prompt_messages(
+        new_state("请查询账单").conversation,
+        recalled_memories=["preferred_language=zh"],
+    )
+    assert "preferred_language=zh" in system
+    assert "不可信数据" in system
+    assert "操作授权" in system
+    assert "preferred_language=zh" not in user
