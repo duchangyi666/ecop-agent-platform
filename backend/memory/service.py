@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from uuid import UUID
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from math import log
 
 from sqlalchemy import select, func, update
@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.database.base import TenantScope
 from backend.database.models.governance import MemoryRecord
+from backend.database.models.identity import User
+from backend.domain.common import DomainError
 from backend.database.unit_of_work import UnitOfWork
 from backend.memory.candidates import DeterministicMemoryExtractor
 from backend.memory.policy import MemoryWritePolicy
@@ -106,9 +108,46 @@ class MemoryService:
     ) -> list[MemoryRecord]:
         candidates = self.extractor.extract(message=message, response=response)
         records: list[MemoryRecord] = []
+        if candidates and user_id is not None:
+            # Serialize even the first insert, when no memory row exists to lock.
+            owner = await uow.session.scalar(select(User.id).where(
+                User.tenant_id == scope.tenant_id, User.id == user_id,
+                User.deleted_at.is_(None), User.status == "active",
+            ).with_for_update())
+            if owner is None:
+                raise DomainError("memory owner not found in tenant scope")
         for candidate in candidates:
             if not self.policy.allow(candidate):
                 continue
+            if user_id is not None:
+                now = datetime.now(timezone.utc)
+                singleton = candidate.memory_type in {"language_preference", "timezone_preference"}
+                statement = select(MemoryRecord).where(
+                    MemoryRecord.tenant_id == scope.tenant_id,
+                    MemoryRecord.user_id == user_id,
+                    MemoryRecord.memory_type == candidate.memory_type,
+                    MemoryRecord.deleted_at.is_(None),
+                )
+                if not singleton:
+                    statement = statement.where(
+                        MemoryRecord.payload_summary["content"].as_string() == candidate.content
+                    )
+                existing = list(await uow.session.scalars(statement.order_by(
+                    MemoryRecord.updated_at.desc(), MemoryRecord.id,
+                ).with_for_update()))
+                reusable = next((row for row in existing
+                    if row.payload_summary.get("content") == candidate.content
+                    and row.ttl_expires_at > now), None)
+                for row in existing:
+                    if row is not reusable:
+                        row.deleted_at = now
+                if reusable is not None:
+                    # Explicit repetition renews retention; passive recall does not.
+                    reusable.updated_at = now
+                    reusable.ttl_expires_at = now + timedelta(days=candidate.ttl_days)
+                    records.append(reusable)
+                    await uow.session.flush()
+                    continue
             record = await uow.governance.add_memory_candidate(
                 scope=scope,
                 user_id=user_id,

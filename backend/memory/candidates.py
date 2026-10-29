@@ -42,17 +42,20 @@ class DeterministicMemoryExtractor:
         candidates: list[MemoryCandidate] = []
         normalized = text.lower()
 
-        for marker in self._language_markers:
-            if marker in normalized:
-                candidates.append(
-                    MemoryCandidate(
-                        memory_type="language_preference",
-                        content="preferred_language=zh",
-                        confidence=0.9,
-                        ttl_days=365,
-                    )
-                )
-                break
+        language_matches = [
+            (normalized.rfind(marker), language)
+            for language, markers in (
+                ("zh", self._language_markers),
+                ("en", ("使用英文", "英文沟通", "工作语言是英文", "language=en")),
+            )
+            for marker in markers if marker in normalized
+        ]
+        if language_matches:
+            _, language = max(language_matches)
+            candidates.append(MemoryCandidate(
+                memory_type="language_preference", content=f"preferred_language={language}",
+                confidence=0.9, ttl_days=365,
+            ))
 
         timezone_match = self._timezone_pattern.search(text)
         if timezone_match:

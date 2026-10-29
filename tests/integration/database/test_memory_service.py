@@ -74,3 +74,42 @@ async def test_recall_decays_refreshes_and_isolates(session_factory, tenant_a, t
         assert old.updated_at == now-timedelta(days=60)
     assert set(await service.recall(scope=scope)) == {"preference=recent", "preference=old"}
     assert await service.recall(scope=TenantScope(tenant_id=tenant_a.id)) == []
+
+
+@pytest.mark.asyncio
+async def test_capture_deduplicates_concurrently_and_replaces_singleton(
+    session_factory, tenant_a, tenant_a_user,
+):
+    import asyncio
+    scope = TenantScope(tenant_id=tenant_a.id, actor_id=tenant_a_user.id)
+    service = MemoryService(session_factory)
+
+    async def capture(message):
+        return await service.capture(scope=scope, user_id=tenant_a_user.id,
+            customer_id=None, message=message)
+
+    first, second = await asyncio.gather(capture("使用中文"), capture("使用中文"))
+    assert first[0].id == second[0].id
+    replacement = await capture("使用英文")
+    assert replacement[0].id != first[0].id
+    recalled = await service.recall(scope=scope)
+    assert "preferred_language=en" in recalled
+    assert "preferred_language=zh" not in recalled
+    async with session_factory() as session:
+        retired = await session.get(MemoryRecord, first[0].id)
+        assert retired.deleted_at is not None
+    a = await capture("我偏好邮件通知")
+    b = await capture("我偏好邮件通知")
+    assert a[0].id == b[0].id
+    await capture("时区是 Asia/Shanghai")
+    await capture("时区是 Europe/London")
+    async with session_factory() as session:
+        active = list(await session.scalars(select(MemoryRecord).where(
+            MemoryRecord.tenant_id == tenant_a.id,
+            MemoryRecord.user_id == tenant_a_user.id,
+            MemoryRecord.deleted_at.is_(None),
+        )))
+    assert len(active) == 3
+    assert {row.payload_summary["content"] for row in active} == {
+        "preferred_language=en", "preference=邮件通知", "timezone=Europe/London",
+    }
