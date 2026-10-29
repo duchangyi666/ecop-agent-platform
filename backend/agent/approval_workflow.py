@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -44,11 +45,16 @@ async def resume_refund_after_approval(
             approval = await uow.support.get_approval_request_for_tenant(
                 scope=actor_scope,
                 approval_request_id=approval_request_id,
+                for_update=True,
             )
             if approval is None:
                 raise DomainError("approval request not found in tenant scope")
             if approval.status is not ApprovalStatus.PENDING:
                 raise DomainError("approval request is not pending")
+            if approval.expires_at <= datetime.now(timezone.utc):
+                raise DomainError("approval request has expired")
+            if approval.action != "approve_refund" or approval.checkpoint_reference != thread_id:
+                raise DomainError("approval request does not match refund workflow")
 
             checkpoint = await uow.governance.get_workflow_checkpoint(
                 scope=actor_scope,
@@ -56,6 +62,14 @@ async def resume_refund_after_approval(
             )
             if checkpoint is None:
                 raise DomainError("workflow checkpoint not found in tenant scope")
+            summary = checkpoint.state_summary or {}
+            if (
+                checkpoint.status != "awaiting_approval"
+                or _as_uuid(summary.get("approval_request_id")) != approval_request_id
+                or approval.refund_id is None
+                or _as_uuid(summary.get("refund_id")) != approval.refund_id
+            ):
+                raise DomainError("approval request does not match refund workflow")
 
             action = "approved" if approved else "rejected"
             action_reason = reason.strip()[:500] if reason and reason.strip() else "approval action submitted by authorized actor"

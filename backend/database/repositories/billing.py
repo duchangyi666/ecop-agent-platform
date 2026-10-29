@@ -20,8 +20,12 @@ class BillingRepository(TenantScopedRepository):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(session)
 
-    async def get_payment_for_tenant(self, *, scope: TenantScope, payment_id: UUID) -> Payment | None:
+    async def get_payment_for_tenant(
+        self, *, scope: TenantScope, payment_id: UUID, for_update: bool = False,
+    ) -> Payment | None:
         statement = self._tenant_visible(select(Payment), Payment, scope=scope).where(Payment.id == payment_id)
+        if for_update:
+            statement = statement.with_for_update().execution_options(populate_existing=True)
         return await self.session.scalar(statement)
 
     async def find_duplicate_charge(
@@ -87,15 +91,21 @@ class BillingRepository(TenantScopedRepository):
         idempotency_key: str,
         amount: Decimal,
     ) -> Refund:
+        ensured_amount = ensure_money(amount)
+        if not ensured_amount.is_finite() or ensured_amount <= Decimal("0.00"):
+            raise DomainError("refund amount must be positive and finite")
         existing = await self.get_refund_by_idempotency_key(scope=scope, idempotency_key=idempotency_key)
         if existing is not None:
+            if existing.payment_id != payment_id or existing.amount != ensured_amount:
+                raise DomainError("refund idempotency key does not match request parameters")
             return existing
 
         payment = await self.get_payment_for_tenant(scope=scope, payment_id=payment_id)
         if payment is None:
             raise DomainError("payment not found in tenant scope")
+        if payment.status is not PaymentStatus.SUCCEEDED:
+            raise DomainError("payment must be succeeded before requesting a refund")
 
-        ensured_amount = ensure_money(amount)
         if ensured_amount > payment.amount:
             raise DomainError("refund amount cannot exceed payment amount")
 

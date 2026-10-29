@@ -20,7 +20,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -117,6 +117,7 @@ async def _ensure_payment(
     external_payment_id: str,
     amount: Decimal,
     paid_at: datetime,
+    invoice_id: UUID | None = None,
 ) -> Payment:
     payment = await session.scalar(
         select(Payment).where(
@@ -125,21 +126,27 @@ async def _ensure_payment(
         )
     )
     if payment is not None:
+        if invoice_id is not None and payment.invoice_id != invoice_id:
+            raise ValueError("existing demo payment belongs to a different invoice; use a fresh demo database")
         return payment
-    external_invoice_id = f"inv-{external_payment_id}"
-    invoice = await session.scalar(
-        select(Invoice).where(
-            Invoice.tenant_id == tenant.id,
-            Invoice.external_invoice_id == external_invoice_id,
-        )
-    )
+    invoice = None
+    if invoice_id is not None:
+        invoice = await session.scalar(select(Invoice).where(
+            Invoice.id == invoice_id, Invoice.tenant_id == tenant.id, Invoice.customer_id == customer.id,
+        ))
+        if invoice is None:
+            raise ValueError("demo invoice not found for customer")
+    else:
+        invoice = await session.scalar(select(Invoice).where(
+            Invoice.tenant_id == tenant.id, Invoice.external_invoice_id == f"inv-{external_payment_id}",
+        ))
     if invoice is None:
         invoice = Invoice(
             id=uuid4(),
             tenant_id=tenant.id,
             customer_id=customer.id,
             subscription_id=None,
-            external_invoice_id=external_invoice_id,
+            external_invoice_id=f"inv-{external_payment_id}",
             amount=amount,
             currency="CNY",
             status="issued",
@@ -202,9 +209,10 @@ KNOWLEDGE_DOCS = [
         "title": "退款政策与到账说明",
         "content": (
             "CloudDesk 退款政策：客户在发现重复扣费、计费错误或服务未交付时，可以提交退款申请。"
-            "系统会核对最近的成功支付记录，若在 24 小时内出现两笔金额相同的扣费，可认定为重复扣费并进入退款流程。"
+            "系统会核对最近的成功支付记录；同一账单在 24 小时内出现两笔金额相同的付款时，"
+            "只能视为疑似重复扣费，还需人工核实。"
             "退款金额大于等于 1000 元时，需要财务经理人工审批；低于 1000 元且支付状态正常时，可按低风险流程处理。"
-            "审批通过后，退款申请进入执行队列，原路退回通常需要 3 到 5 个工作日，具体到账时间以支付渠道为准。"
+            "审批通过仅表示本地流程进入待执行状态；当前演示未接入真实支付渠道，不代表资金已经退回。"
             "退款申请提交后，客户可以在“我的工单”或退款记录中查看状态。"
         ),
     },
@@ -300,6 +308,7 @@ async def main() -> None:
                 external_payment_id="demo-pay-dup-1280-b",
                 amount=Decimal("1280.00"),
                 paid_at=now - timedelta(hours=2),
+                invoice_id=pay_dup_a.invoice_id,
             )
             ticket = await _ensure_ticket(session, tenant, customer, user)
             await session.commit()

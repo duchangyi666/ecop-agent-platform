@@ -137,21 +137,60 @@ npm run dev          # 访问 http://localhost:3000/
 
 ## 🔑 演示账号
 
-一键创建 5 个演示账号（含租户、角色权限，幂等可重复执行）：
+在 `AUTH_MODE=dev` 下创建 5 个演示身份（默认租户 `clouddesk-demo`，幂等可重复执行）：
 
 ```powershell
 python scripts/seed_demo_accounts.py
 ```
 
-| 角色       | 邮箱                      | 密码              | 权限                                  |
-| ---------- | ------------------------- | ----------------- | ------------------------------------- |
-| 平台管理员 | `admin@clouddesk.demo`    | `Admin@123456`    | 全权限（含退款审批 / 评测 / Runtime） |
-| 客服专员   | `agent@clouddesk.demo`    | `Agent@123456`    | 咨询 / 会话 / 工单 / 知识库           |
-| 财务审核员 | `finance@clouddesk.demo`  | `Finance@123456`  | 退款申请 + 审批 / 审批查看            |
-| 演示客户   | `customer@clouddesk.demo` | `Customer@123456` | 咨询 / 会话 / 工单 / 知识检索         |
-| 访客       | `guest@clouddesk.demo`    | `Guest@123456`    | 最小只读权限                          |
+| 身份       | 邮箱                      | 权限摘要 |
+| ---------- | ------------------------- | -------- |
+| 平台管理员 | `admin@clouddesk.demo`    | 全部 20 项权限 |
+| 客服专员   | `agent@clouddesk.demo`    | 咨询、会话、工单、审批查看、知识检索 |
+| 财务审核员 | `finance@clouddesk.demo`  | 咨询、会话查看、退款申请 / 审批、Runtime 查看 |
+| 演示客户   | `customer@clouddesk.demo` | 咨询、会话、工单创建 / 查看、知识检索 |
+| 访客       | `guest@clouddesk.demo`    | 仅知识检索 |
 
-生成业务演示数据（工单 / 审批 / 知识文档 / 会话，落库到指定租户）：
+这些身份不设置密码。在开发身份选择器 `/identity` 中选择对应租户和用户，或用脚本输出的 `tenant_id` / `user_id` 调用开发 Token 接口；企业密码登录使用 `/login` 的 OIDC 流程。开发身份列表 API 仅在 `AUTH_MODE=dev` 可用，`oidc` 和 `jwt-only` 模式返回 404。权限复用 `backend/auth/permissions.py` 的角色矩阵，数据库以组合的 `demo_*` 权限角色存储。重复执行不增加用户或授权行，不会重新启用已停用 / 删除的身份；发现已有额外权限时会报错，建议改用新的 `--tenant-slug`，不会自动撤销既有授权。该脚本只初始化身份，业务样例数据需另行生成。
+
+初始化同一租户下的小型完整样例（包含上述五种身份、客户关联、付款、工单和三份知识文档）：
+
+```powershell
+python scripts/seed_demo_scenario.py
+```
+
+默认使用 `clouddesk-demo`，也可用 `--tenant-slug` 指定独立演示租户。脚本输出身份和业务对象 ID；开发身份选择器选择该租户后即可操作这些对象。重复执行保留已有对象及其业务状态，知识内容未变时不新增版本；如需全新的演示流程，使用新的租户 slug。此入口仅在 `AUTH_MODE=dev` 可运行，知识写入 PostgreSQL，不访问模型或 Milvus；退款只验证本地申请与审批，不执行第三方资金操作。
+
+前后端启动并准备上述数据后，可在 `frontend` 目录运行 `npm run test:chat-persistence`，用本机已安装的 Playwright Chromium 检查对话跨页面、刷新和身份切换；默认访问 `http://127.0.0.1:3000`，可通过 `SMOKE_BASE_URL` 和 `SMOKE_TENANT_SLUG` 覆盖。测试会在独立浏览器上下文中发送演示咨询并产生记录；后端未配置模型密钥时使用离线模型，否则会调用已配置的模型服务。该测试仅适用于演示环境，不代表生产验收。
+
+智能客服咨询消息在浏览器安全检查结果返回前以占位文本存储；在该咨询入口中，被输入安全规则拦截的内容不会作为原文保存到会话或写入记忆，历史消息中被规则识别的内容会在提交给模型前隐藏。规则不能识别所有敏感或恶意内容，此改动也不会清理已有浏览器或数据库历史记录；演示请使用虚构数据。
+
+数据库支持的咨询入口按租户、用户和线程恢复最近 20 条公开消息，只使用当前用户发送的消息及系统生成的助手消息；客户端提交的历史会被忽略，非线程所属用户不能复用线程。同一用户并发提交到同一线程时尚未提供版本冲突控制，消息顺序与上下文可能不一致。
+
+`npm run test:identity-cache` 可在同一演示环境验证应用内切换身份时，上一身份的业务缓存与 Bearer Token 不会继续用于新身份。运行时会读取演示工单并发起开发 Token 请求；服务端鉴权和租户隔离仍是安全边界。
+
+`npm run test:approval` 会使用 seed 输出的 `payment_id` 创建一条本地退款申请，通过浏览器完成财务审批，并检查访客被拒绝、重复审批被拒绝、审批记录和 Runtime 轨迹。执行前在 `frontend` 目录设置环境变量（将值替换为本次 seed 输出）：
+
+```powershell
+$env:SMOKE_PAYMENT_ID = '<seed 输出的 payment_id>'
+npm run test:approval
+```
+
+审批超过有效期后不能再批准或拒绝；查询接口按当前时间将尚未处理的过期申请显示在“已过期”，这一展示状态不会自动更改数据库记录或恢复工作流。
+
+也可运行 `npm run test:demo` 顺序执行聊天、身份隔离和审批三项浏览器检查。审批脚本限制通过本机地址访问，并会在演示数据库新增退款与审批记录；请使用隔离的开发演示环境和虚构数据。重复 seed 不会清除这些记录，需要全新状态时使用新的演示租户。该测试使用开发身份，不验证 OIDC 或真实支付。
+
+在 Windows 上，前后端已启动、依赖和 Playwright Chromium 已安装后，也可以从仓库根目录用一个命令初始化样例并执行上述三项检查，无需手动复制付款 ID：
+
+```powershell
+$env:AUTH_MODE = 'dev'
+$env:DATABASE_URL = 'postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations'
+.\scripts\run_demo_smoke.ps1 -TenantSlug 'clouddesk-demo'
+```
+
+这里的数据库必须与正在运行的演示后端一致。使用 `-TenantSlug` 指定新的租户可获得独立样例；脚本不删除已有数据。非默认地址可通过 `-BaseUrl` 指定本机前端，非默认 Python 可通过 `-PythonExecutable` 指定。脚本会写入虚构演示数据，仍需确保后端未配置真实模型密钥以进行离线演示。
+
+需要更大规模的独立合成数据时（生成器默认使用 `demo-ops` 租户前缀，不与上述样例混用）：
 
 ```powershell
 python scripts/generate_synthetic_data.py --scale small --seed 42 --tenant-prefix demo-ops
@@ -180,7 +219,13 @@ Redis 队列执行异步维护任务（模块 `backend.tasks.worker` / `backend.
 
 **权限治理**：后端统一使用 `backend/auth/permissions.py` 的 `Permission` 常量；新增受保护路由必须挂 `require_permission(...)`，`tests/unit/api/test_route_permissions.py` 会扫描路由并拒绝缺失或未知权限。前端使用 `frontend/lib/permissions.ts` 与可复用 `<Can permission="...">` 门禁；它只负责 UX，安全边界始终在后端。
 
+**浏览器与请求边界**：后端统一设置 CSP、X-Frame-Options、nosniff、Referrer Policy 与 Permissions Policy；HSTS 仅在 HTTPS 请求上启用。CORS 默认不开放跨域，如确需前后端跨域部署，使用逗号分隔的 `CORS_ALLOWED_ORIGINS=https://console.example.com` 显式配置；不接受 `*`、带路径或带账号信息的来源。POST/PUT/PATCH 请求体默认限制为 1 MiB，可通过 `MAX_REQUEST_BODY_BYTES` 调整；应用同时校验 `Content-Length` 和实际接收字节，超限返回 413。普通 HTTP 请求默认具有 120 秒处理截止时间，可通过 `REQUEST_TIMEOUT_SECONDS` 调整，超时返回结构化 504；SSE 客服流与 `/mcp/*` 长连接不受该截止时间影响，应由各自的会话和下游调用预算治理。
+
+应用层默认按实际连接客户端 IP 执行每 60 秒 120 次请求的固定窗口限流，可通过 `RATE_LIMIT_REQUESTS`、`RATE_LIMIT_WINDOW_SECONDS` 和 `RATE_LIMIT_MAX_CLIENTS` 调整；超限返回结构化 429 以及 `Retry-After`、`RateLimit-*` 响应头。限流不信任客户端提供的 `X-Forwarded-For`，健康检查、就绪检查、指标抓取和 CORS 预检不计数。该内存限流仅提供单实例防滥用保护；多副本生产部署必须在可信反向代理/API Gateway 或共享 Redis 中统一解析真实来源并实施租户配额。
+
 **租户隔离（RLS）**：Alembic `010` 为 35 张业务表启用 `tenant_isolation` policy，应用通过 `set_config('app.tenant_id', ..., true)` 在每个事务设置租户上下文。当前迁移使用 `ENABLE` 而非 `FORCE`，本地表 owner 仍会绕过策略；**生产必须使用非 owner 的 `app_rw` 角色**，否则 RLS 不会生效。CI/测试用 `pg_read_all_data` / `pg_write_all_data` 非 owner 角色验证跨租户读取和写入拒绝。身份表（`users`/`roles`/`permissions`/`user_roles`）暂不启用 RLS，登录由身份服务单独处理。
+
+迁移 `011` 将事务结束后可能出现的空租户设置视为未设置：非 owner 角色读取不到租户业务行，写入被拒绝。集成测试使用单连接池验证提交和回滚后连接复用，以及租户切换；这不改变表 owner 绕过 RLS 的限制。
 
 本地体验 RLS 强制模式：
 
@@ -270,14 +315,14 @@ $env:TEST_DATABASE_URL = $env:DATABASE_URL   # 必须显式指定，测试不会
 
 ## 🔬 评测结果
 
-5 个租户 45 个检索用例的离线实测（`scripts/evaluate_retrieval.py`）：
+以下为历史记录的 5 个租户、45 个检索用例的离线结果；仓库未附该次运行的原始结果、数据集版本及模型配置，当前版本尚未重新验证：
 
 | 指标    | Dense  | Hybrid (RRF) | Reranked (BGE) |
 | ------- | ------ | ------------ | -------------- |
 | MRR     | 0.8185 | 0.7926       | **0.8481**     |
 | NDCG@10 | 0.8644 | 0.8456       | **0.8876**     |
 
-Cross-Encoder 精排相对 RRF 融合 **MRR +0.056、NDCG@10 +0.042**，验证真实 BGE Reranker 已接入检索链路。
+该历史记录中，Cross-Encoder 精排相对 RRF 融合的 MRR 差值为 **+0.056**、NDCG@10 差值为 **+0.042**。这些数字仅适用于当时的离线样本，不能作为当前版本或真实客户场景的效果结论；重新评测时应保存数据集、模型版本、代码提交和逐例结果。评测脚本为 `scripts/evaluate_retrieval.py`。
 
 ---
 
@@ -302,3 +347,11 @@ scripts/                   # 演示数据生成、账号 seed、检索评测、�
 docs/                      # 架构文档与 API 设计合同
 tests/                     # 单元 / 集成测试（unit · integration/database · api · agent · vectorstore）
 ```
+
+会话接口的普通读写权限仅覆盖当前用户的会话，内部消息需要 `conversation.read.all`；客服跨用户处理需要单独授予 `conversation.write.all`。旧的无用户归属会话仅对具备相应全租户权限的人员可见，已有部署需显式配置新权限。
+
+普通工单创建权限仅允许为当前用户关联的客户创建工单，客服跨客户创建需要 `ticket.create.all`。普通工单读取权限仅覆盖当前用户关联客户的工单，内部消息和处理事件需要 `ticket.read.all`。已有部署需要为相应客服角色显式配置该权限。
+
+长期偏好记忆：咨询检索阶段仅召回当前租户、当前用户的未过期偏好，按 `confidence × 2^(-活跃天数/30)` 排序，默认最多 3 条（上限 5 条）。被选入上下文的记忆刷新 `updated_at`，创建时间、内容哈希及硬过期时间保持独立；召回不会无限续期。记忆作为不可信偏好数据传给回答模型，不构成业务事实或操作授权。当前属于规则偏好召回，尚无语义相关性检索、用户纠错界面和一般偏好的语义冲突合并；半衰期为初始参数。
+
+偏好写入按用户串行处理：重复的一般偏好复用记录，语言和时区各保留一个当前值，变更时软删除旧记录。用户主动重述会更新记忆活跃时间及保留期，普通召回仅刷新活跃时间。同类历史重复记录在再次写入时合并。语言提取支持明确的中文和英文表达，一般偏好仅做精确内容去重。

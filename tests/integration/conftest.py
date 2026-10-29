@@ -13,7 +13,7 @@ from sqlalchemy.pool import NullPool
 
 from backend.database.base import TenantScope
 from backend.database.base import Base
-from backend.database.models.billing import Customer, Invoice, Payment, Refund
+from backend.database.models.billing import Customer, CustomerContact, Invoice, Payment, Refund
 from backend.database.models.governance import (
     AgentDefinition,
     Document,
@@ -105,6 +105,7 @@ async def _cleanup(factory: async_sessionmaker[AsyncSession], tenant_id: UUID) -
             Refund,
             Payment,
             Invoice,
+            CustomerContact,
             Customer,
             UserRole,
             Permission,

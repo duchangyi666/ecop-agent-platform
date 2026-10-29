@@ -21,6 +21,8 @@ async def test_approval_read_route_lists_and_returns_detail(
     payment,
 ) -> None:
     approval_id = uuid4()
+    expired_id = uuid4()
+    approved_id = uuid4()
     refund_id = uuid4()
     async with session_factory() as session:
         session.add(
@@ -53,6 +55,26 @@ async def test_approval_read_route_lists_and_returns_detail(
                 checkpoint_reference="thread-approval-read",
             )
         )
+        session.add(
+            ApprovalRequest(
+                id=expired_id, tenant_id=tenant_a.id, refund_id=refund_id,
+                requested_by_user_id=tenant_a_user.id, action="refund.execute",
+                payload_summary={}, payload_hash="expired-hash", amount=Decimal("88.00"),
+                risk_level="high", approval_role="finance_reviewer", status="pending",
+                expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
+                checkpoint_reference="thread-expired-read",
+            )
+        )
+        session.add(
+            ApprovalRequest(
+                id=approved_id, tenant_id=tenant_a.id, refund_id=refund_id,
+                requested_by_user_id=tenant_a_user.id, action="refund.execute",
+                payload_summary={}, payload_hash="approved-hash", amount=Decimal("88.00"),
+                risk_level="high", approval_role="finance_reviewer", status="approved",
+                expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
+                checkpoint_reference="thread-approved-read",
+            )
+        )
         await session.commit()
 
     list_response = approval_read_api_client.get("/api/v1/approvals", headers=api_headers)
@@ -67,6 +89,15 @@ async def test_approval_read_route_lists_and_returns_detail(
     assert detail_response.status_code == 200, detail_response.text
     assert detail_response.json()["approval"]["status"] == "pending"
     assert detail_response.json()["approval"]["refund_id"] == str(refund_id)
+
+    expired_detail = approval_read_api_client.get(f"/api/v1/approvals/{expired_id}", headers=api_headers)
+    assert expired_detail.json()["approval"]["status"] == "expired"
+    pending = approval_read_api_client.get("/api/v1/approvals?status=pending", headers=api_headers)
+    assert {item["approval_request_id"] for item in pending.json()["approvals"]} == {str(approval_id)}
+    expired = approval_read_api_client.get("/api/v1/approvals?status=expired", headers=api_headers)
+    assert {item["approval_request_id"] for item in expired.json()["approvals"]} == {str(expired_id)}
+    approved = approval_read_api_client.get(f"/api/v1/approvals/{approved_id}", headers=api_headers)
+    assert approved.json()["approval"]["status"] == "approved"
 
 
 @pytest.mark.asyncio

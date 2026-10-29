@@ -61,7 +61,9 @@ export const useAuthStore = create<AuthState>()(
       // On the server there is no localStorage; on the client the identity
       // above is already correct, so hydration is considered complete.
       _hasHydrated: typeof window !== "undefined",
-      setIdentity: (identity) => set({ identity }),
+      // A manually selected development identity must not reuse an earlier
+      // OIDC bearer token belonging to a different user.
+      setIdentity: (identity) => set({ identity, accessToken: null }),
       setSession: (identity, accessToken) => set({ identity, accessToken }),
       clear: () => set({ identity: null, accessToken: null }),
     }),

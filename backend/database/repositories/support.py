@@ -7,12 +7,12 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.database.base import TenantScope
-from backend.database.models.billing import Customer, Refund
+from backend.database.models.billing import Customer, CustomerContact, Refund
 from backend.database.models.identity import User
 from backend.database.repositories.base import TenantScopedRepository
 from backend.database.models.support import (
@@ -91,8 +91,12 @@ class SupportRepository(TenantScopedRepository):
         statement = self._tenant_visible(select(Customer), Customer, scope=scope).where(Customer.id == customer_id)
         return await self.session.scalar(statement)
 
-    async def _get_ticket_for_tenant(self, *, scope: TenantScope, ticket_id: UUID) -> Ticket | None:
+    async def _get_ticket_for_tenant(
+        self, *, scope: TenantScope, ticket_id: UUID, for_update: bool = False,
+    ) -> Ticket | None:
         statement = self._tenant_visible(select(Ticket), Ticket, scope=scope).where(Ticket.id == ticket_id)
+        if for_update:
+            statement = statement.with_for_update().execution_options(populate_existing=True)
         return await self.session.scalar(statement)
 
     async def _get_refund_for_tenant(self, *, scope: TenantScope, refund_id: UUID) -> Refund | None:
@@ -111,12 +115,16 @@ class SupportRepository(TenantScopedRepository):
             raise DomainError("actor not found in tenant scope")
         return stored_user_id
 
-    async def _get_approval_request_for_tenant(self, *, scope: TenantScope, approval_request_id: UUID) -> ApprovalRequest | None:
+    async def _get_approval_request_for_tenant(
+        self, *, scope: TenantScope, approval_request_id: UUID, for_update: bool = False,
+    ) -> ApprovalRequest | None:
         statement = (
             self._tenant_visible(select(ApprovalRequest), ApprovalRequest, scope=scope)
             .options(selectinload(ApprovalRequest.actions))
             .where(ApprovalRequest.id == approval_request_id)
         )
+        if for_update:
+            statement = statement.with_for_update().execution_options(populate_existing=True)
         return await self.session.scalar(statement)
 
     async def create_ticket(
@@ -197,7 +205,7 @@ class SupportRepository(TenantScopedRepository):
         reason: str,
         changes: dict[str, Any] | None = None,
     ) -> Ticket:
-        ticket = await self._get_ticket_for_tenant(scope=scope, ticket_id=ticket_id)
+        ticket = await self._get_ticket_for_tenant(scope=scope, ticket_id=ticket_id, for_update=True)
         if ticket is None:
             raise DomainError("ticket not found in tenant scope")
 
@@ -359,11 +367,20 @@ class SupportRepository(TenantScopedRepository):
         *,
         scope: TenantScope,
         approval_request_id: UUID,
+        for_update: bool = False,
     ) -> ApprovalRequest | None:
         return await self._get_approval_request_for_tenant(
             scope=scope,
             approval_request_id=approval_request_id,
+            for_update=for_update,
         )
+
+    async def get_refund_approval(self, *, scope: TenantScope, refund_id: UUID) -> ApprovalRequest | None:
+        statement = self._tenant_visible(select(ApprovalRequest), ApprovalRequest, scope=scope).where(
+            ApprovalRequest.refund_id == refund_id,
+            ApprovalRequest.action == "approve_refund",
+        ).order_by(ApprovalRequest.created_at, ApprovalRequest.id).limit(1)
+        return await self.session.scalar(statement)
 
     async def append_approval_action(
         self,
@@ -374,7 +391,9 @@ class SupportRepository(TenantScopedRepository):
         reason: str,
         changes: dict[str, Any],
     ) -> ApprovalAction:
-        approval_request = await self._get_approval_request_for_tenant(scope=scope, approval_request_id=approval_request_id)
+        approval_request = await self._get_approval_request_for_tenant(
+            scope=scope, approval_request_id=approval_request_id, for_update=True,
+        )
         if approval_request is None:
             raise DomainError("approval request not found in tenant scope")
         stored_actor_id = await self._get_user_id_in_tenant_or_none(scope=scope, user_id=scope.actor_id)
@@ -476,6 +495,7 @@ class SupportRepository(TenantScopedRepository):
         scope: TenantScope,
         limit: int = 50,
         status: str | None = None,
+        owner_id: UUID | None = None,
     ) -> list[Conversation]:
         statement = (
             self._tenant_visible(
@@ -485,6 +505,8 @@ class SupportRepository(TenantScopedRepository):
             )
             .options(selectinload(Conversation.messages))
         )
+        if owner_id is not None:
+            statement = statement.where(Conversation.user_id == owner_id)
         if status:
             statement = statement.where(Conversation.status == status)
         statement = statement.order_by(Conversation.started_at.desc()).limit(limit)
@@ -495,6 +517,7 @@ class SupportRepository(TenantScopedRepository):
         *,
         scope: TenantScope,
         conversation_id: UUID,
+        owner_id: UUID | None = None,
     ) -> Conversation | None:
         statement = (
             self._tenant_visible(
@@ -505,6 +528,8 @@ class SupportRepository(TenantScopedRepository):
             .options(selectinload(Conversation.messages))
             .where(Conversation.id == conversation_id)
         )
+        if owner_id is not None:
+            statement = statement.where(Conversation.user_id == owner_id)
         return await self.session.scalar(statement)
 
     async def append_conversation_message(
@@ -585,12 +610,19 @@ class SupportRepository(TenantScopedRepository):
         scope: TenantScope,
         limit: int = 50,
         status: str | None = None,
+        owner_id: UUID | None = None,
     ) -> list[Ticket]:
         statement = self._tenant_visible(
             select(Ticket),
             Ticket,
             scope=scope,
         )
+        if owner_id is not None:
+            statement = statement.where(Ticket.customer_id.in_(select(CustomerContact.customer_id).where(
+                CustomerContact.tenant_id == scope.tenant_id,
+                CustomerContact.user_id == owner_id,
+                CustomerContact.deleted_at.is_(None),
+            )))
         if status:
             statement = statement.where(Ticket.status == status)
         statement = statement.order_by(Ticket.updated_at.desc()).limit(limit)
@@ -601,6 +633,7 @@ class SupportRepository(TenantScopedRepository):
         *,
         scope: TenantScope,
         ticket_id: UUID,
+        owner_id: UUID | None = None,
     ) -> Ticket | None:
         statement = (
             self._tenant_visible(
@@ -615,7 +648,13 @@ class SupportRepository(TenantScopedRepository):
             )
             .where(Ticket.id == ticket_id)
         )
-        return await self.session.scalar(statement)
+        if owner_id is not None:
+            statement = statement.where(Ticket.customer_id.in_(select(CustomerContact.customer_id).where(
+                CustomerContact.tenant_id == scope.tenant_id,
+                CustomerContact.user_id == owner_id,
+                CustomerContact.deleted_at.is_(None),
+            )))
+        return await self.session.scalar(statement.execution_options(populate_existing=True))
 
     async def update_ticket_metadata(
         self,
@@ -675,6 +714,7 @@ class SupportRepository(TenantScopedRepository):
         scope: TenantScope,
         limit: int = 50,
         status: str | None = None,
+        as_of: datetime | None = None,
     ) -> list[ApprovalRequest]:
         statement = (
             self._tenant_visible(
@@ -684,7 +724,18 @@ class SupportRepository(TenantScopedRepository):
             )
             .options(selectinload(ApprovalRequest.actions))
         )
-        if status:
+        if status == ApprovalStatus.PENDING.value:
+            statement = statement.where(
+                ApprovalRequest.status == ApprovalStatus.PENDING,
+                ApprovalRequest.expires_at > (as_of or datetime.now(timezone.utc)),
+            )
+        elif status == ApprovalStatus.EXPIRED.value:
+            statement = statement.where(or_(
+                ApprovalRequest.status == ApprovalStatus.EXPIRED,
+                and_(ApprovalRequest.status == ApprovalStatus.PENDING,
+                     ApprovalRequest.expires_at <= (as_of or datetime.now(timezone.utc))),
+            ))
+        elif status:
             statement = statement.where(ApprovalRequest.status == status)
         statement = statement.order_by(ApprovalRequest.expires_at).limit(limit)
         return list(await self.session.scalars(statement))

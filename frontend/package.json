@@ -6,7 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint . --max-warnings 0"
+    "lint": "eslint . --max-warnings 0",
+    "test:chat-persistence": "node scripts/smoke-chat-persistence.mjs",
+    "test:identity-cache": "node scripts/smoke-identity-cache.mjs",
+    "test:approval": "node scripts/smoke-approval.mjs",
+    "test:demo": "npm run test:chat-persistence && npm run test:identity-cache && npm run test:approval"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.59.0",

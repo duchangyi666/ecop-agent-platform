@@ -85,6 +85,7 @@ async def stream_customer_consultation(
                         "next_action": result.next_action,
                         "final_response": result.final_response,
                         "knowledge_evidence_count": result.knowledge_evidence_count,
+                        "input_restricted": result.input_restricted,
                     },
                 )
             )
