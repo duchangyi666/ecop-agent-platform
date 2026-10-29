@@ -91,8 +91,12 @@ class SupportRepository(TenantScopedRepository):
         statement = self._tenant_visible(select(Customer), Customer, scope=scope).where(Customer.id == customer_id)
         return await self.session.scalar(statement)
 
-    async def _get_ticket_for_tenant(self, *, scope: TenantScope, ticket_id: UUID) -> Ticket | None:
+    async def _get_ticket_for_tenant(
+        self, *, scope: TenantScope, ticket_id: UUID, for_update: bool = False,
+    ) -> Ticket | None:
         statement = self._tenant_visible(select(Ticket), Ticket, scope=scope).where(Ticket.id == ticket_id)
+        if for_update:
+            statement = statement.with_for_update().execution_options(populate_existing=True)
         return await self.session.scalar(statement)
 
     async def _get_refund_for_tenant(self, *, scope: TenantScope, refund_id: UUID) -> Refund | None:
@@ -201,7 +205,7 @@ class SupportRepository(TenantScopedRepository):
         reason: str,
         changes: dict[str, Any] | None = None,
     ) -> Ticket:
-        ticket = await self._get_ticket_for_tenant(scope=scope, ticket_id=ticket_id)
+        ticket = await self._get_ticket_for_tenant(scope=scope, ticket_id=ticket_id, for_update=True)
         if ticket is None:
             raise DomainError("ticket not found in tenant scope")
 
