@@ -73,7 +73,7 @@ async def test_ticket_ops_route_patches_status_and_note(
     body = patch_response.json()
     assert body["ticket"]["status"] == "resolved"
     assert body["ticket"]["priority"] == "medium"
-    assert any(message["body"] == "客服已完成处理" for message in body["messages"])
+    assert sum(message["body"] == "客服已完成处理" for message in body["messages"]) == 1
 
 
 @pytest.mark.asyncio
@@ -145,3 +145,19 @@ async def test_ticket_patch_rejects_unknown_status_without_updating_metadata(
     detail = ticket_ops_api_client.get(url, headers=api_headers).json()
     assert detail["ticket"]["status"] == "open"
     assert detail["ticket"]["subject"] != "must not be saved"
+
+
+@pytest.mark.asyncio
+async def test_ticket_note_only_update_persists_one_message(
+    ticket_ops_api_client, api_headers, customer_id,
+):
+    created = ticket_ops_api_client.post(
+        "/api/v1/tickets", headers=api_headers, json=_payload(customer_id, "note-only"),
+    )
+    assert created.status_code == 201, created.text
+    response = ticket_ops_api_client.patch(
+        f"/api/v1/tickets/{created.json()['ticket_id']}", headers=api_headers,
+        json={"note": "single follow-up note"},
+    )
+    assert response.status_code == 200, response.text
+    assert sum(message["body"] == "single follow-up note" for message in response.json()["messages"]) == 1

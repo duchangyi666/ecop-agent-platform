@@ -236,7 +236,8 @@ async def patch_ticket(
             subject=payload.subject,
             description_summary=payload.description_summary,
             priority=payload.priority,
-            note=payload.note,
+            # Status transitions already persist their reason as an internal message.
+            note=None if payload.status is not None else payload.note,
             actor_id=context.scope.actor_id,
         )
         ticket = await uow.support.get_ticket_detail(
