@@ -650,7 +650,7 @@ class SupportRepository(TenantScopedRepository):
                 CustomerContact.user_id == owner_id,
                 CustomerContact.deleted_at.is_(None),
             )))
-        return await self.session.scalar(statement)
+        return await self.session.scalar(statement.execution_options(populate_existing=True))
 
     async def update_ticket_metadata(
         self,

@@ -114,3 +114,15 @@ async def test_ticket_read_respects_customer_association_and_internal_visibility
     assert any(item["ticket_id"] == ticket_id for item in ticket_ops_api_client.get("/api/v1/tickets", headers=headers).json()["tickets"])
     staff_view = ticket_ops_api_client.get(url, headers=api_headers).json()
     assert staff_view["messages"] and staff_view["events"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", [{"status": "resolved"}, {"note": "follow up"}])
+async def test_ticket_patch_missing_ticket_returns_not_found(
+    ticket_ops_api_client, api_headers, payload,
+):
+    response = ticket_ops_api_client.patch(
+        f"/api/v1/tickets/{uuid4()}", headers=api_headers, json=payload,
+    )
+    assert response.status_code == 404, response.text
+    assert response.json()["error"]["code"] == "ticket_not_found"

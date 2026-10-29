@@ -214,6 +214,14 @@ async def patch_ticket(
         )
 
     async with UnitOfWork(session_factory, scope=context.scope) as uow:
+        ticket = await uow.support.get_ticket_detail(
+            scope=context.scope, ticket_id=ticket_id,
+        )
+        if ticket is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"code": "ticket_not_found", "message": "ticket not found"},
+            )
         if payload.status:
             await uow.support.update_ticket_status(
                 scope=context.scope,
