@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.domain.ticket import TicketStatus
+
 
 class RefundCreateRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
@@ -442,7 +444,7 @@ class TicketDetailResponse(BaseModel):
 class TicketPatchRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
-    status: str | None = Field(default=None, min_length=1, max_length=50)
+    status: TicketStatus | None = None
     subject: str | None = Field(default=None, min_length=1, max_length=255)
     description_summary: str | None = Field(default=None, max_length=2000)
     priority: Literal["low", "medium", "high", "urgent"] | None = None

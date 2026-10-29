@@ -126,3 +126,22 @@ async def test_ticket_patch_missing_ticket_returns_not_found(
     )
     assert response.status_code == 404, response.text
     assert response.json()["error"]["code"] == "ticket_not_found"
+
+
+@pytest.mark.asyncio
+async def test_ticket_patch_rejects_unknown_status_without_updating_metadata(
+    ticket_ops_api_client, api_headers, customer_id,
+):
+    created = ticket_ops_api_client.post(
+        "/api/v1/tickets", headers=api_headers, json=_payload(customer_id, "invalid-status"),
+    )
+    assert created.status_code == 201, created.text
+    url = f"/api/v1/tickets/{created.json()['ticket_id']}"
+    response = ticket_ops_api_client.patch(
+        url, headers=api_headers, json={"status": "unknown", "subject": "must not be saved"},
+    )
+    assert response.status_code == 400, response.text
+    assert response.json()["error"]["code"] == "invalid_request"
+    detail = ticket_ops_api_client.get(url, headers=api_headers).json()
+    assert detail["ticket"]["status"] == "open"
+    assert detail["ticket"]["subject"] != "must not be saved"
