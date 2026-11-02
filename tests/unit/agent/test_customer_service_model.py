@@ -130,3 +130,11 @@ def test_recalled_preferences_are_labeled_as_untrusted_context():
     assert "不可信数据" in system
     assert "操作授权" in system
     assert "preferred_language=zh" not in user
+
+
+def test_only_complete_memory_block_counts_as_used():
+    from backend.agent.agents.customer_service import _included_memories
+    state = new_state("查询账单").model_copy(update={"recalled_memories": ["preferred_language=zh"]})
+    system, _ = _prompt_messages(state.conversation, recalled_memories=state.recalled_memories)
+    assert _included_memories(state, system) == state.recalled_memories
+    assert _included_memories(state, system.split("preferred_language")[0]) == []

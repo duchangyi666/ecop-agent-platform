@@ -65,6 +65,12 @@ async def test_recall_decays_refreshes_and_isolates(session_factory, tenant_a, t
         await session.commit()
     service = MemoryService(session_factory)
     assert await service.recall(scope=scope, limit=1) == ["preference=recent"]
+    from backend.database.unit_of_work import UnitOfWork
+    async with session_factory() as session:
+        unchanged = await session.get(MemoryRecord, ids[0])
+        assert unchanged.updated_at == now-timedelta(days=1)
+    async with UnitOfWork(session_factory, scope=scope) as uow:
+        await service.mark_used_in_uow(uow, scope=scope, contents=["preference=recent"])
     async with session_factory() as session:
         recent = await session.get(MemoryRecord, ids[0])
         old = await session.get(MemoryRecord, ids[1])

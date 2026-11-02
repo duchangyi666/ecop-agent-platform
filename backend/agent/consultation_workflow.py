@@ -299,6 +299,9 @@ class CustomerConsultationService:
             )
             memory_records: list[MemoryRecord] = []
             if self.memory_service is not None and not input_restricted:
+                await self.memory_service.mark_used_in_uow(
+                    uow, scope=scope, contents=_get("used_memories", []) or [],
+                )
                 memory_records = await self.memory_service.capture_in_uow(
                     uow,
                     scope=scope,

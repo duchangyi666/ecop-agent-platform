@@ -39,6 +39,7 @@ class AgentState(BaseModel):
     conversation: list[ConversationMessage] = Field(default_factory=list)
     customer_id: UUID | None = None
     recalled_memories: list[str] = Field(default_factory=list)
+    used_memories: list[str] = Field(default_factory=list)
     knowledge_evidence: list[KnowledgeEvidence] = Field(default_factory=list)
     status: str = "completed"
     next_action: str = "finish"

@@ -33,7 +33,7 @@ class MemoryService:
     async def recall(self, *, scope: TenantScope, limit: int = 3) -> list[str]:
         """Recall private preferences. updated_at is the last activity timestamp.
 
-        Creation and expiry remain unchanged; retrieval never renews hard TTL.
+        Read-only selection; mark_used_in_uow refreshes activity after model use.
         """
         if self.session_factory is None or scope.actor_id is None:
             return []
@@ -52,7 +52,6 @@ class MemoryService:
                 MemoryRecord.memory_type.in_(["language_preference", "timezone_preference", "user_preference"]),
                 MemoryRecord.confidence >= self.policy.min_confidence,
             ).order_by(score.desc(), MemoryRecord.id).limit(20)))
-            chosen = []
             contents = []
             guard = InputSecurityGuard()
             for row in rows:
@@ -63,17 +62,22 @@ class MemoryService:
                 candidate = MemoryCandidate(row.memory_type, content, row.confidence, 1)
                 if not self.policy.allow(candidate) or guard.evaluate(content).status != "allow":
                     continue
-                chosen.append(row.id)
                 contents.append(content)
                 if len(contents) >= limit:
                     break
-            if chosen:
-                await uow.session.execute(update(MemoryRecord).where(
-                    MemoryRecord.tenant_id == scope.tenant_id,
-                    MemoryRecord.user_id == scope.actor_id,
-                    MemoryRecord.id.in_(chosen),
-                ).values(updated_at=func.greatest(MemoryRecord.updated_at, now)))
             return contents
+
+    async def mark_used_in_uow(self, uow: UnitOfWork, *, scope: TenantScope, contents: list[str]) -> None:
+        if scope.actor_id is None or not contents:
+            return
+        now = datetime.now(timezone.utc)
+        await uow.session.execute(update(MemoryRecord).where(
+            MemoryRecord.tenant_id == scope.tenant_id,
+            MemoryRecord.user_id == scope.actor_id,
+            MemoryRecord.deleted_at.is_(None),
+            MemoryRecord.ttl_expires_at > now,
+            MemoryRecord.payload_summary["content"].as_string().in_(contents[:5]),
+        ).values(updated_at=func.greatest(MemoryRecord.updated_at, now)))
 
     async def capture(
         self,
