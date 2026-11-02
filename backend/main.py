@@ -18,6 +18,7 @@ from backend.api.request_limits import configure_request_body_limit
 from backend.api.request_timeout import configure_request_timeout
 from backend.api.schemas import ErrorResponse, HealthResponse
 from backend.api.security_headers import apply_security_headers
+from backend.api.routes.memories import router as memories_router
 from backend.api.routes.auth import router as auth_router
 from backend.api.routes.approvals import router as approvals_router
 from backend.api.routes.conversations import router as conversations_router
@@ -163,6 +164,7 @@ def create_app(
     app.include_router(refunds_router)
     app.include_router(approvals_router)
     app.include_router(conversations_router)
+    app.include_router(memories_router)
     app.include_router(customer_service_router)
     app.include_router(tickets_router)
     app.include_router(knowledge_router)
