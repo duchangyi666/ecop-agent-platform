@@ -119,3 +119,32 @@ async def test_capture_deduplicates_concurrently_and_replaces_singleton(
     assert {row.payload_summary["content"] for row in active} == {
         "preferred_language=en", "preference=邮件通知", "timezone=Europe/London",
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("retired", [False, True])
+async def test_usage_confirmation_does_not_revive_unavailable_memory(
+    session_factory, tenant_a, tenant_a_user, retired,
+):
+    from datetime import datetime, timezone, timedelta
+    from uuid import uuid4
+    from backend.database.unit_of_work import UnitOfWork
+    now = datetime.now(timezone.utc)
+    old = now-timedelta(days=10)
+    scope = TenantScope(tenant_id=tenant_a.id, actor_id=tenant_a_user.id)
+    memory_id = uuid4()
+    async with session_factory() as session:
+        session.add(MemoryRecord(id=memory_id, tenant_id=tenant_a.id, user_id=tenant_a_user.id,
+            memory_type="user_preference", payload_summary={"content": "preference=email"},
+            payload_hash=uuid4().hex, source="conversation", confidence=0.8,
+            created_at=old, updated_at=old, deleted_at=now if retired else None,
+            ttl_expires_at=now+timedelta(days=30) if retired else old))
+        await session.commit()
+    async with UnitOfWork(session_factory, scope=scope) as uow:
+        await MemoryService(session_factory).mark_used_in_uow(
+            uow, scope=scope, contents=["preference=email"],
+        )
+    async with session_factory() as session:
+        row = await session.get(MemoryRecord, memory_id)
+        assert row.updated_at == old
+        assert row.deleted_at == (now if retired else None)
