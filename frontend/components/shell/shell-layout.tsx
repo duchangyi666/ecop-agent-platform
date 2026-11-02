@@ -39,6 +39,7 @@ interface NavItem {
 }
 
 const GLOBAL_NAV: NavItem[] = [
+  { href: "/memories", label: "我的记忆", icon: Database, permission: PERMISSIONS.CUSTOMER_CONSULT },
   { href: "/chat", label: "对话", icon: MessageSquare, permission: PERMISSIONS.CUSTOMER_CONSULT },
 ];
 
