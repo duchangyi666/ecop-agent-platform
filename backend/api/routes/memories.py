@@ -33,6 +33,7 @@ class MemoryItem(BaseModel):
 class MemoryListResponse(BaseModel):
     request_id: str
     memories: list[MemoryItem]
+    next_offset: int | None = None
 
 
 @router.get("", response_model=MemoryListResponse)
@@ -40,6 +41,7 @@ async def list_memories(
     context: RequestContext = Depends(require_permission(Permission.CUSTOMER_CONSULT)),
     session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
     limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=1000000),
 ) -> MemoryListResponse:
     async with UnitOfWork(session_factory, scope=context.scope) as uow:
         rows = list(await uow.session.scalars(select(MemoryRecord).where(
@@ -47,13 +49,13 @@ async def list_memories(
             MemoryRecord.user_id == context.scope.actor_id,
             MemoryRecord.deleted_at.is_(None),
             MemoryRecord.ttl_expires_at > datetime.now(timezone.utc),
-        ).order_by(MemoryRecord.created_at.desc(), MemoryRecord.id).limit(limit)))
-    return MemoryListResponse(request_id=context.request_id, memories=[
+        ).order_by(MemoryRecord.created_at.desc(), MemoryRecord.id).offset(offset).limit(limit + 1)))
+    return MemoryListResponse(request_id=context.request_id, next_offset=offset + limit if len(rows) > limit else None, memories=[
         MemoryItem(memory_id=row.id, memory_type=row.memory_type,
                    content=str(row.payload_summary.get("content", "")),
                    created_at=row.created_at, last_active_at=row.updated_at,
                    expires_at=row.ttl_expires_at)
-        for row in rows
+        for row in rows[:limit]
     ])
 
 
@@ -89,9 +91,11 @@ async def correct_memory(
 ) -> MemoryItem:
     async with UnitOfWork(session_factory, scope=context.scope) as uow:
         # Use the same owner-first lock ordering as automatic memory capture.
-        await uow.session.scalar(select(User.id).where(
+        owner = await uow.session.scalar(select(User).where(
             User.tenant_id == context.scope.tenant_id, User.id == context.scope.actor_id,
         ).with_for_update())
+        if owner is None or not owner.memory_enabled:
+            raise HTTPException(status_code=409, detail={"code": "memory_disabled", "message": "enable memory before editing preferences"})
         now = datetime.now(timezone.utc)
         record = await uow.session.scalar(select(MemoryRecord).where(
             MemoryRecord.id == memory_id, MemoryRecord.tenant_id == context.scope.tenant_id,
@@ -122,3 +126,32 @@ async def correct_memory(
         return MemoryItem(memory_id=updated.id, memory_type=updated.memory_type,
                           content=updated.payload_summary["content"], created_at=updated.created_at,
                           last_active_at=updated.updated_at, expires_at=updated.ttl_expires_at)
+
+
+class MemorySettings(BaseModel):
+    enabled: bool
+
+
+@router.get("/settings/current", response_model=MemorySettings)
+async def get_memory_settings(
+    context: RequestContext = Depends(require_permission(Permission.CUSTOMER_CONSULT)),
+    session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
+) -> MemorySettings:
+    async with UnitOfWork(session_factory, scope=context.scope) as uow:
+        enabled = await uow.session.scalar(select(User.memory_enabled).where(
+            User.tenant_id == context.scope.tenant_id, User.id == context.scope.actor_id,
+        ))
+    return MemorySettings(enabled=bool(enabled))
+
+
+@router.patch("/settings/current", response_model=MemorySettings)
+async def update_memory_settings(
+    payload: MemorySettings,
+    context: RequestContext = Depends(require_permission(Permission.CUSTOMER_CONSULT)),
+    session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory_dependency),
+) -> MemorySettings:
+    async with UnitOfWork(session_factory, scope=context.scope) as uow:
+        await uow.session.execute(update(User).where(
+            User.tenant_id == context.scope.tenant_id, User.id == context.scope.actor_id,
+        ).values(memory_enabled=payload.enabled))
+    return payload

@@ -80,3 +80,45 @@ async def test_memory_correction_validates_value_and_replaces_recall(
     async with session_factory() as session:
         original = await session.get(MemoryRecord, memory_id)
         assert original.deleted_at is not None
+
+
+@pytest.mark.asyncio
+async def test_memory_disable_stops_capture_recall_and_refresh(
+    customer_consult_api_client, api_headers, session_factory, tenant_a, tenant_a_user,
+):
+    from backend.database.unit_of_work import UnitOfWork
+    scope = TenantScope(tenant_id=tenant_a.id, actor_id=tenant_a_user.id)
+    service = MemoryService(session_factory)
+    rows = await service.capture(scope=scope, user_id=tenant_a_user.id, customer_id=None, message="使用中文")
+    previous = rows[0].updated_at
+    client = customer_consult_api_client
+    url = "/api/v1/memories/settings/current"
+    assert client.patch(url, headers=api_headers, json={"enabled": False}).json() == {"enabled": False}
+    assert client.get(url, headers=api_headers).json() == {"enabled": False}
+    assert await service.recall(scope=scope) == []
+    assert await service.capture(scope=scope, user_id=tenant_a_user.id, customer_id=None, message="使用英文") == []
+    assert client.patch(f"/api/v1/memories/{rows[0].id}", headers=api_headers, json={"value": "en"}).status_code == 409
+    async with UnitOfWork(session_factory, scope=scope) as uow:
+        await service.mark_used_in_uow(uow, scope=scope, contents=["preferred_language=zh"])
+    async with session_factory() as session:
+        assert (await session.get(MemoryRecord, rows[0].id)).updated_at == previous
+    assert len(client.get("/api/v1/memories", headers=api_headers).json()["memories"]) == 1
+    assert client.patch(url, headers=api_headers, json={"enabled": True}).status_code == 200
+    assert await service.recall(scope=scope) == ["preferred_language=zh"]
+
+
+@pytest.mark.asyncio
+async def test_memory_list_paginates_without_duplicate_records(
+    customer_consult_api_client, api_headers, session_factory, tenant_a, tenant_a_user,
+):
+    service = MemoryService(session_factory)
+    scope = TenantScope(tenant_id=tenant_a.id, actor_id=tenant_a_user.id)
+    for text in ("我偏好邮件", "我偏好短信", "我偏好电话"):
+        await service.capture(scope=scope, user_id=tenant_a_user.id, customer_id=None, message=text)
+    client = customer_consult_api_client
+    first = client.get("/api/v1/memories?limit=2", headers=api_headers).json()
+    second = client.get(f"/api/v1/memories?limit=2&offset={first['next_offset']}", headers=api_headers).json()
+    assert len(first["memories"]) == 2
+    assert len(second["memories"]) == 1
+    assert second["next_offset"] is None
+    assert len({row["memory_id"] for row in first["memories"]+second["memories"]}) == 3

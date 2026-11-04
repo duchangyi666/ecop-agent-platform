@@ -359,3 +359,7 @@ tests/                     # 单元 / 集成测试（unit · integration/databas
 记忆管理接口：`GET /api/v1/memories` 查看本人未过期、未删除记忆（默认 50 条，上限 100）；`DELETE /api/v1/memories/{memory_id}` 软删除本人的单条记忆，成功返回 204。两者需要 `customer.consult` 权限，其他用户记录与不存在记录均不可删除。列表读取不会刷新活跃时间。软删除退出后续召回，不代表物理擦除，也不撤回已发送给模型的上下文；页面入口为 `/memories`（导航“我的记忆”），支持查看与确认删除。
 
 记忆纠正：`PATCH /api/v1/memories/{memory_id}` 接收 `value`，仅能修改本人有效记忆；语言值为 `zh`/`en`，时区采用有效 IANA 名称，一般偏好经过写入策略和安全检查。纠正复用去重写入逻辑并软删除旧值，返回当前有效记录。页面“我的记忆”提供修改入口。
+
+长期记忆开关：`GET/PATCH /api/v1/memories/settings/current` 读取或更新当前用户的 `enabled`。关闭时停止自动采集、召回、权重刷新和偏好修改；已存记忆仍可查看和删除，重新开启后未过期记忆可继续使用。开关不清除当前会话历史，也无法撤回已经发给模型的上下文。已有部署需先执行 `python -m alembic upgrade head`（迁移 012）。列表支持 `offset` 与 `next_offset`，页面每页 50 条；并发增删时分页属于实时列表，修改后回到首页。
+
+`npm --prefix frontend run test:memory` 在本地演示环境验证修改、关闭状态持久化、删除和身份隔离，并纳入 `test:demo`。记忆当前定位为语言、时区和明确使用偏好的个性化模块；没有通用事件记忆或语义矛盾推理，用户纠正优先通过管理页面完成。

@@ -42,6 +42,12 @@ class MemoryService:
             return []
         now = datetime.now(timezone.utc)
         async with UnitOfWork(self.session_factory, scope=scope) as uow:
+            enabled = await uow.session.scalar(select(User.memory_enabled).where(
+                User.tenant_id == scope.tenant_id, User.id == scope.actor_id,
+                User.deleted_at.is_(None), User.status == "active",
+            ))
+            if not enabled:
+                return []
             age_days = func.greatest(0, func.extract("epoch", now - MemoryRecord.updated_at) / 86400.0)
             score = MemoryRecord.confidence * func.exp(-log(2) * age_days / 30.0)
             rows = list(await uow.session.scalars(select(MemoryRecord).where(
@@ -77,6 +83,9 @@ class MemoryService:
             MemoryRecord.deleted_at.is_(None),
             MemoryRecord.ttl_expires_at > now,
             MemoryRecord.payload_summary["content"].as_string().in_(contents[:5]),
+            select(User.id).where(User.id == scope.actor_id, User.tenant_id == scope.tenant_id,
+                                  User.memory_enabled.is_(True), User.status == "active",
+                                  User.deleted_at.is_(None)).exists(),
         ).values(updated_at=func.greatest(MemoryRecord.updated_at, now)))
 
     async def capture(
@@ -122,12 +131,14 @@ class MemoryService:
         records: list[MemoryRecord] = []
         if candidates and user_id is not None:
             # Serialize even the first insert, when no memory row exists to lock.
-            owner = await uow.session.scalar(select(User.id).where(
+            owner = await uow.session.scalar(select(User).where(
                 User.tenant_id == scope.tenant_id, User.id == user_id,
                 User.deleted_at.is_(None), User.status == "active",
             ).with_for_update())
             if owner is None:
                 raise DomainError("memory owner not found in tenant scope")
+            if not owner.memory_enabled:
+                return []
         for candidate in candidates:
             if not self.policy.allow(candidate):
                 continue
