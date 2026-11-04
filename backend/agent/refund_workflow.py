@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import asdict, is_dataclass
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
@@ -16,6 +17,8 @@ from backend.agent.runtime import WorkflowResult
 from backend.agent.state import AgentState
 from backend.agent.tools.billing import BillingTool, RefundToolRequest
 from backend.database.unit_of_work import UnitOfWork
+from backend.domain.approval import ApprovalStatus
+from backend.domain.common import DomainError
 
 
 class RefundWorkflowRequest(BaseModel):
@@ -95,7 +98,7 @@ class RefundWorkflowService:
                     reason=reason,
                 )
                 state = self._redact_guard_state(state)
-                await uow.governance.save_workflow_checkpoint(
+                created_checkpoint = await uow.governance.create_workflow_checkpoint_if_absent(
                     scope=scope,
                     thread_id=request.thread_id,
                     state_summary=_state_to_jsonable(state),
@@ -108,7 +111,7 @@ class RefundWorkflowService:
                     status=workflow_status,
                     error_summary=reason,
                 )
-                if self.checkpoint_store is not None:
+                if self.checkpoint_store is not None and created_checkpoint:
                     await self.checkpoint_store.save(
                         request.thread_id,
                         {
@@ -145,6 +148,7 @@ class RefundWorkflowService:
             payment = await uow.billing.get_payment_for_tenant(
                 scope=scope,
                 payment_id=request.payment_id,
+                for_update=True,
             )
             if payment is None:
                 raise ValueError("payment disappeared during refund preview")
@@ -198,6 +202,45 @@ class RefundWorkflowService:
                 )
 
             refund = await billing_tool.request(tool_request)
+            existing_approval = await uow.support.get_refund_approval(scope=scope, refund_id=refund.id)
+            checkpoint = await uow.governance.get_workflow_checkpoint(scope=scope, thread_id=request.thread_id)
+            if existing_approval is not None:
+                summary = checkpoint.state_summary if checkpoint is not None else {}
+                if (
+                    existing_approval.checkpoint_reference != request.thread_id
+                    or checkpoint is None
+                    or str(summary.get("approval_request_id")) != str(existing_approval.id)
+                    or str(summary.get("refund_id")) != str(refund.id)
+                    or checkpoint.refund_idempotency_key != request.refund_idempotency_key
+                ):
+                    raise DomainError("refund approval is associated with another workflow")
+                retry_status = checkpoint.status
+                retry_state = dict(summary)
+                if (
+                    existing_approval.status is ApprovalStatus.PENDING
+                    and existing_approval.expires_at <= datetime.now(timezone.utc)
+                ):
+                    retry_status = "human_handoff"
+                    retry_state.update(next_action="human_handoff", reason="审批已过期，请联系人工处理。")
+                await uow.governance.complete_runtime_trace(
+                    trace_id=trace.id, status=retry_status, error_summary=None,
+                )
+                return WorkflowResult(
+                    thread_id=request.thread_id,
+                    status=retry_status,
+                    refund_idempotency_key=request.refund_idempotency_key,
+                    state=retry_state,
+                    refund_id=refund.id,
+                    approval_request_id=existing_approval.id,
+                    trace_id=trace.id,
+                )
+            if checkpoint is not None:
+                summary = checkpoint.state_summary or {}
+                if (
+                    checkpoint.refund_idempotency_key != request.refund_idempotency_key
+                    or str(summary.get("refund_id")) != str(refund.id)
+                ):
+                    raise DomainError("workflow thread is already associated with another request")
             tool_audit = await uow.support.append_audit_log(
                 scope=scope,
                 actor_id=scope.actor_id,

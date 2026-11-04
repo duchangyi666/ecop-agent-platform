@@ -39,6 +39,7 @@ class User(TenantAuditMixin, Base):
     email: Mapped[str] = mapped_column(String(255), nullable=False)
     display_name: Mapped[str] = mapped_column(String(200), nullable=False)
     status: Mapped[str] = mapped_column(String(50), nullable=False)
+    memory_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     tenant: Mapped["Tenant"] = relationship(back_populates="users")

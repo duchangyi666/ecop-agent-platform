@@ -35,6 +35,8 @@ jobs:
         run: |
           cd frontend
           npm run build
+        env:
+          BACKEND_URL: http://127.0.0.1:8000
 
       - name: Install project
         run: |
@@ -61,6 +63,44 @@ jobs:
           TEST_DATABASE_URL: postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations
           MILVUS_URI: http://localhost:19541
           PYTHONNOUSERSITE: "1"
+
+      - name: Install browser for demo smoke
+        timeout-minutes: 5
+        run: npx --no-install playwright install --with-deps chromium
+        working-directory: frontend
+
+      - name: Run demo browser smoke
+        timeout-minutes: 5
+        shell: bash
+        env:
+          AUTH_MODE: dev
+          DATABASE_URL: postgresql+asyncpg://app:app@localhost:54329/enterprise_customer_operations
+          JWT_SECRET: ci-only-demo-secret-not-for-production
+          DEEPSEEK_API_KEY: ""
+          PYTHONNOUSERSITE: "1"
+          SMOKE_TENANT_SLUG: clouddesk-ci-demo
+        run: |
+          set -euo pipefail
+          python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 > /tmp/clouddesk-backend.log 2>&1 &
+          backend_pid=$!
+          (cd frontend && BACKEND_URL=http://127.0.0.1:8000 npm run start -- --hostname 127.0.0.1 --port 3000) > /tmp/clouddesk-frontend.log 2>&1 &
+          frontend_pid=$!
+          trap 'kill "$backend_pid" "$frontend_pid" 2>/dev/null || true' EXIT
+          for service in http://127.0.0.1:8000/healthz http://127.0.0.1:3000/identity; do
+            ready=false
+            for attempt in {1..60}; do
+              if curl --fail --silent "$service" > /dev/null; then ready=true; break; fi
+              sleep 2
+            done
+            if [ "$ready" != true ]; then
+              cat /tmp/clouddesk-backend.log /tmp/clouddesk-frontend.log
+              exit 1
+            fi
+          done
+          seed_json=$(python scripts/seed_demo_scenario.py --tenant-slug "$SMOKE_TENANT_SLUG")
+          export SMOKE_PAYMENT_ID=$(printf '%s' "$seed_json" | python -c 'import json,sys; print(json.load(sys.stdin)["payment_id"])')
+          cd frontend
+          npm run test:demo
 
       - name: Check migrations
         run: python -m alembic check

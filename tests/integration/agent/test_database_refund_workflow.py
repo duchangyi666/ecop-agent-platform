@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from decimal import Decimal
 from uuid import uuid4
 
@@ -11,6 +12,7 @@ from backend.agent.runtime import run_refund_workflow
 from backend.agent.state import create_agent_state
 from backend.database.base import TenantScope
 from backend.database.models.billing import Refund
+from backend.database.models.support import ApprovalRequest
 from backend.domain.billing import RefundStatus
 from backend.domain.common import DomainError
 
@@ -55,3 +57,22 @@ async def test_cross_tenant_payment_is_not_refundable(database_url, tenant_b, te
 
     with pytest.raises(DomainError, match="payment not found in tenant scope"):
         await run_refund_workflow(request, database_url=database_url)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_refund_retries_reuse_approval(database_url, session_factory, payment, tenant_a, tenant_a_user):
+    request = make_refund_workflow_request(payment, tenant_a, tenant_a_user, Decimal("20.00"))
+    request.state.tenant_scope = TenantScope(
+        tenant_id=tenant_a.id, actor_id=tenant_a_user.id, actor_type="service",
+    )
+    first, second = await asyncio.gather(
+        run_refund_workflow(request.model_copy(deep=True), database_url=database_url),
+        run_refund_workflow(request.model_copy(deep=True), database_url=database_url),
+    )
+    assert first.refund_id == second.refund_id
+    assert first.approval_request_id == second.approval_request_id
+    async with session_factory() as session:
+        approvals = list(await session.scalars(
+            select(ApprovalRequest).where(ApprovalRequest.refund_id == first.refund_id)
+        ))
+    assert len(approvals) == 1

@@ -20,7 +20,7 @@ import os
 import sys
 from collections import defaultdict
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -183,10 +183,11 @@ async def evaluate(
 
     from pymilvus import MilvusClient
 
-    collection = f"ecop_eval_retrieval_{str(tenant_id)[:8]}"
+    collection = f"ecop_eval_retrieval_{uuid4().hex}"
     client = MilvusClient(uri=milvus_uri, timeout=30)
     if client.has_collection(collection):
-        client.drop_collection(collection)
+        client.close()
+        raise RuntimeError("evaluation collection already exists; refusing to overwrite it")
 
     hybrid_embedder = embedder or BgeM3HybridEmbedder(model_path)
     hybrid_store = MilvusKnowledgeVectorStore(
@@ -287,7 +288,10 @@ async def evaluate(
     finally:
         await hybrid_store.close()
         await dense_store.close()
-        client.drop_collection(collection)
+        try:
+            client.drop_collection(collection)
+        finally:
+            client.close()
 
 
 def _print_report(result: dict) -> None:

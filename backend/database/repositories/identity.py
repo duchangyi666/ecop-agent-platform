@@ -86,6 +86,15 @@ class IdentityRepository(TenantScopedRepository):
         )
         return list(await self.session.scalars(statement))
 
+    async def user_has_customer(self, *, scope: TenantScope, user_id: UUID, customer_id: UUID) -> bool:
+        statement = select(CustomerContact.id).where(
+            CustomerContact.tenant_id == scope.tenant_id,
+            CustomerContact.user_id == user_id,
+            CustomerContact.customer_id == customer_id,
+            CustomerContact.deleted_at.is_(None),
+        ).limit(1)
+        return await self.session.scalar(statement) is not None
+
     async def get_customer_for_user(self, *, scope: TenantScope, user_id: UUID) -> UUID | None:
         statement = (
             select(CustomerContact.customer_id)

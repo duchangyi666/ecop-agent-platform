@@ -289,7 +289,7 @@ export interface ChatHistoryItem {
 export interface CustomerConsultationRequest {
   thread_id: string;
   message: string;
-  /** Prior turns so the agent answers with full multi-turn context. */
+  /** Legacy field; the consultation service loads history from the server. */
   history?: ChatHistoryItem[];
 }
 

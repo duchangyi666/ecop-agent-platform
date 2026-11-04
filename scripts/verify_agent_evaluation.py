@@ -35,13 +35,15 @@ def verify_guard_dataset_offline() -> dict[str, object]:
     input_guard = InputSecurityGuard()
     domain_guard = DomainGuard()
     blocked = {"block", "human_handoff"}
-    stats = {"total": 0, "status_hit": 0, "domain_hit": 0, "blocked_hit": 0, "failures": []}
+    stats = {"total": 0, "status_hit": 0, "domain_hit": 0, "domain_count": 0,
+             "blocked_hit": 0, "failures": []}
     for message, expected_status, expected_domain in GUARD_CASES:
         stats["total"] += 1
         decision = input_guard.evaluate(message)
         status_hit = decision.status == expected_status
         domain_hit = True
         if expected_status == "allow" and expected_domain:
+            stats["domain_count"] += 1
             domain_decision = domain_guard.evaluate(message)
             domain_hit = (
                 domain_decision.status == "in_scope"
@@ -52,7 +54,7 @@ def verify_guard_dataset_offline() -> dict[str, object]:
         blocked_hit = expected_blocked == actual_blocked
         if status_hit:
             stats["status_hit"] += 1
-        if domain_hit:
+        if expected_status == "allow" and expected_domain and domain_hit:
             stats["domain_hit"] += 1
         if blocked_hit:
             stats["blocked_hit"] += 1
@@ -66,7 +68,9 @@ def verify_guard_dataset_offline() -> dict[str, object]:
                 }
             )
     stats["status_accuracy"] = stats["status_hit"] / stats["total"]
-    stats["domain_accuracy"] = stats["domain_hit"] / stats["total"]
+    stats["domain_accuracy"] = (
+        stats["domain_hit"] / stats["domain_count"] if stats["domain_count"] else None
+    )
     stats["blocked_accuracy"] = stats["blocked_hit"] / stats["total"]
     return stats
 
@@ -114,14 +118,14 @@ async def run_db_evaluations(
         guard_result = await runner.run_guard_evaluation(
             scope=scope,
             dataset_code="agent-guard",
-            limit=guard_limit,
+            max_cases=guard_limit,
         )
         print(f"[guard] {guard_result.metrics}")
 
         correctness_result = await runner.run_correctness_evaluation(
             scope=scope,
             dataset_code="agent-qa",
-            limit=qa_limit,
+            max_cases=qa_limit,
         )
         print(f"[correctness] {correctness_result.metrics}")
     finally:
@@ -133,8 +137,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--offline-only", action="store_true", help="only check guard dataset quality offline")
     parser.add_argument("--tenant-id", type=UUID, default=None)
     parser.add_argument("--database-url", default=os.getenv("DATABASE_URL", get_settings().database_url))
-    parser.add_argument("--qa-limit", type=int, default=3)
-    parser.add_argument("--guard-limit", type=int, default=20)
+    parser.add_argument("--qa-limit", type=int, default=3, help="maximum QA cases (ordered by case key)")
+    parser.add_argument("--guard-limit", type=int, default=20, help="maximum guard cases (ordered by case key)")
     return parser.parse_args()
 
 

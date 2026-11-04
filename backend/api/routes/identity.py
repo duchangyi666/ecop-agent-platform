@@ -13,9 +13,24 @@ from backend.api.schemas import (
     TenantListResponse,
     TenantUsersResponse,
 )
+from backend.auth.config import get_auth_settings
 from backend.database.models.identity import Role, Tenant, User, UserRole
 
-router = APIRouter(prefix="/api/v1/identity", tags=["identity"])
+
+def require_development_mode() -> None:
+    """Disable the unauthenticated identity picker outside development."""
+    if get_auth_settings().auth_mode != "dev":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "not_found", "message": "resource not found"},
+        )
+
+
+router = APIRouter(
+    prefix="/api/v1/identity",
+    tags=["identity"],
+    dependencies=[Depends(require_development_mode)],
+)
 
 
 def _request_id(request: Request) -> str:

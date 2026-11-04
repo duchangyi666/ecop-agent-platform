@@ -5,12 +5,14 @@ import { PanelRight, Send, Sparkles, Square } from "lucide-react";
 import { useConsultStream, type ConsultEvent } from "@/hooks/use-consult-stream";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
-import type { ChatHistoryItem } from "@/lib/types";
 
 interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  pending?: boolean;
 }
+
+const HIDDEN_INPUT = "[输入因安全检查未保存]";
 
 function processNote(event: ConsultEvent): string | null {
   if (event.event === "started") return "已受理您的问题，正在分析…";
@@ -33,6 +35,7 @@ export function ChatWindow() {
   const [showContext, setShowContext] = useState(false);
   const [threadId, setThreadId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [loadedStorageKey, setLoadedStorageKey] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Persist the conversation per identity so history survives navigating to
@@ -42,27 +45,36 @@ export function ChatWindow() {
     : null;
 
   useEffect(() => {
-    if (!storageKey) return;
+    let savedThreadId: string | null = null;
+    let savedMessages: ChatMessage[] = [];
     try {
-      const raw = window.localStorage.getItem(storageKey);
+      const raw = storageKey ? window.localStorage.getItem(storageKey) : null;
       if (raw) {
         const saved = JSON.parse(raw) as { threadId?: string | null; messages?: ChatMessage[] };
-        setThreadId(saved.threadId ?? null);
-        setMessages(Array.isArray(saved.messages) ? saved.messages : []);
+        savedThreadId = typeof saved.threadId === "string" ? saved.threadId : null;
+        savedMessages = Array.isArray(saved.messages) ? saved.messages : [];
       }
     } catch {
       /* ignore malformed saved state */
     }
+    setThreadId(savedThreadId);
+    setMessages(savedMessages);
+    setLoadedStorageKey(storageKey);
   }, [storageKey]);
 
   useEffect(() => {
-    if (!storageKey) return;
+    // Do not overwrite a saved conversation with the initial empty state.
+    // Matching the key also prevents one identity's state being saved for another.
+    if (!storageKey || loadedStorageKey !== storageKey) return;
     try {
-      window.localStorage.setItem(storageKey, JSON.stringify({ threadId, messages }));
+      const safeMessages = messages.map((message) =>
+        message.pending ? { role: message.role, content: HIDDEN_INPUT } : message,
+      );
+      window.localStorage.setItem(storageKey, JSON.stringify({ threadId, messages: safeMessages }));
     } catch {
       /* ignore quota errors */
     }
-  }, [storageKey, threadId, messages]);
+  }, [storageKey, loadedStorageKey, threadId, messages]);
 
   // SSE process events (evidence / processing notes) shown under the current turn.
   const processSteps = events.filter((event) => event.event !== "done");
@@ -71,6 +83,23 @@ export function ChatWindow() {
   const evidenceResults = events.find((e) => e.event === "evidence")?.data.results as
     | Array<{ title: string; snippet?: string; score?: number | null; source?: string | null }>
     | undefined;
+
+  useEffect(() => {
+    const done = events.find((event) => event.event === "done");
+    if (!done) return;
+    setMessages((previous) => previous.map((message) =>
+      message.pending
+        ? { role: message.role, content: done.data.input_restricted === false ? message.content : HIDDEN_INPUT }
+        : message,
+    ));
+  }, [events]);
+
+  useEffect(() => {
+    if (!error) return;
+    setMessages((previous) => previous.map((message) =>
+      message.pending ? { role: message.role, content: HIDDEN_INPUT } : message,
+    ));
+  }, [error]);
 
   // Append the assistant reply once a turn completes (multi-turn history).
   useEffect(() => {
@@ -88,14 +117,14 @@ export function ChatWindow() {
     if (!message || running) return;
     const thread = threadId ?? `chat-${crypto.randomUUID().slice(0, 8)}`;
     setThreadId(thread);
-    const history: ChatHistoryItem[] = messages.map((msg) => ({
-      role: msg.role,
-      content: msg.content,
-    }));
-    setMessages((prev) => [...prev, { role: "user", content: message }]);
+    setMessages((prev) => [...prev, { role: "user", content: message, pending: true }]);
     setInput("");
-    void run({ thread_id: thread, message, history });
+    void run({ thread_id: thread, message });
   };
+
+  if (loadedStorageKey !== storageKey) {
+    return <div className="p-6 text-sm text-muted-foreground">正在恢复对话…</div>;
+  }
 
   return (
     <div className="flex h-full min-h-0">
@@ -252,7 +281,12 @@ export function ChatWindow() {
               />
               {running ? (
                 <button
-                  onClick={cancel}
+                  onClick={() => {
+                    cancel();
+                    setMessages((previous) => previous.map((message) =>
+                      message.pending ? { role: message.role, content: HIDDEN_INPUT } : message,
+                    ));
+                  }}
                   className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground hover:bg-muted"
                   aria-label="停止"
                 >

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -22,12 +23,16 @@ from backend.api.schemas import (
 )
 from backend.auth.permissions import Permission
 from backend.database.unit_of_work import UnitOfWork
+from backend.domain.approval import ApprovalStatus
 
 router = APIRouter(prefix="/api/v1", tags=["approvals"])
 
 
-def _approval_item(approval) -> ApprovalItem:
+def _approval_item(approval, *, as_of: datetime) -> ApprovalItem:
     actions = getattr(approval, "actions", None) or []
+    effective_status = approval.status
+    if effective_status == ApprovalStatus.PENDING and approval.expires_at <= as_of:
+        effective_status = ApprovalStatus.EXPIRED
     return ApprovalItem(
         approval_request_id=approval.id,
         ticket_id=approval.ticket_id,
@@ -36,7 +41,7 @@ def _approval_item(approval) -> ApprovalItem:
         amount=approval.amount,
         risk_level=approval.risk_level,
         approval_role=approval.approval_role,
-        status=approval.status.value if hasattr(approval.status, "value") else str(approval.status),
+        status=effective_status.value if hasattr(effective_status, "value") else str(effective_status),
         expires_at=approval.expires_at,
         checkpoint_reference=approval.checkpoint_reference,
         action_count=len(actions),
@@ -61,15 +66,17 @@ async def list_approvals(
     status_filter: str | None = Query(default=None, alias="status", max_length=50),
     limit: int = Query(default=50, ge=1, le=200),
 ) -> ApprovalListResponse:
+    as_of = datetime.now(timezone.utc)
     async with UnitOfWork(session_factory, scope=context.scope) as uow:
         approvals = await uow.support.list_approval_requests(
             scope=context.scope,
             limit=limit,
             status=status_filter,
+            as_of=as_of,
         )
     return ApprovalListResponse(
         request_id=context.request_id,
-        approvals=[_approval_item(item) for item in approvals],
+        approvals=[_approval_item(item, as_of=as_of) for item in approvals],
     )
 
 
@@ -91,7 +98,7 @@ async def get_approval(
         )
     return ApprovalDetailResponse(
         request_id=context.request_id,
-        approval=_approval_item(approval),
+        approval=_approval_item(approval, as_of=datetime.now(timezone.utc)),
         actions=[_action_item(action) for action in approval.actions],
     )
 

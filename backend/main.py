@@ -12,7 +12,13 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from backend.api.cors import configure_cors
+from backend.api.rate_limit import configure_rate_limit
+from backend.api.request_limits import configure_request_body_limit
+from backend.api.request_timeout import configure_request_timeout
 from backend.api.schemas import ErrorResponse, HealthResponse
+from backend.api.security_headers import apply_security_headers
+from backend.api.routes.memories import router as memories_router
 from backend.api.routes.auth import router as auth_router
 from backend.api.routes.approvals import router as approvals_router
 from backend.api.routes.conversations import router as conversations_router
@@ -93,6 +99,10 @@ def create_app(
         knowledge_vector_store = create_knowledge_vector_store()
     app.state.knowledge_vector_store = knowledge_vector_store
     setup_tracing(app)
+    configure_cors(app)
+    configure_request_body_limit(app)
+    configure_request_timeout(app)
+    configure_rate_limit(app)
 
     @app.middleware("http")
     async def observe_http_requests(request: Request, call_next):
@@ -119,6 +129,7 @@ def create_app(
             latency_seconds=latency_ms / 1000,
         )
         response.headers["X-Request-Id"] = request_id
+        apply_security_headers(response, is_https=request.url.scheme == "https")
         logger.info(
             "http_request",
             extra={
@@ -153,6 +164,7 @@ def create_app(
     app.include_router(refunds_router)
     app.include_router(approvals_router)
     app.include_router(conversations_router)
+    app.include_router(memories_router)
     app.include_router(customer_service_router)
     app.include_router(tickets_router)
     app.include_router(knowledge_router)

@@ -27,6 +27,8 @@ _GUARD_KIND = "guard"
 @dataclass(frozen=True, slots=True)
 class _CaseMetrics:
     metrics: dict[str, float]
+    passed: bool = False
+    domain_evaluated: bool = False
     expected_status: str | None = None
     actual_status: str | None = None
     expected_blocked: bool | None = None
@@ -58,7 +60,10 @@ class AgentEvaluationRunner:
         scope: TenantScope,
         dataset_code: str,
         limit: int = 5,
+        max_cases: int | None = None,
     ) -> EvaluationRunResult:
+        if max_cases is not None and max_cases < 1:
+            raise ValueError("max_cases must be positive")
         judge = AnswerJudge(self.model_gateway)
         async with UnitOfWork(self.session_factory, scope=scope) as uow:
             dataset = await uow.evaluation.get_dataset_by_code(
@@ -75,6 +80,8 @@ class AgentEvaluationRunner:
                 )
                 if case.expected_summary.get("kind") == _QA_KIND
             ]
+            if max_cases is not None:
+                cases = cases[:max_cases]
             if not cases:
                 raise DomainError("evaluation dataset has no qa cases")
 
@@ -120,7 +127,7 @@ class AgentEvaluationRunner:
                 metrics["judge_error"] = 1.0 if judge_error else 0.0
 
                 passed = correctness > 0 and (not gold_document_ids or metrics.get("recall_at_k", 0.0) > 0)
-                per_case.append(_CaseMetrics(metrics=metrics))
+                per_case.append(_CaseMetrics(metrics=metrics, passed=passed))
                 await uow.evaluation.add_result(
                     scope=scope,
                     run_id=run.id,
@@ -137,7 +144,7 @@ class AgentEvaluationRunner:
             aggregated = {
                 "kind": "correctness",
                 "case_count": len(per_case),
-                "passed_count": sum(1 for c in per_case if c.metrics.get("correctness", 0.0) > 0),
+                "passed_count": sum(1 for c in per_case if c.passed),
                 "correctness": fmean([c.metrics["correctness"] for c in per_case]),
                 "judge_error_count": sum(1 for c in per_case if c.metrics.get("judge_error", 0.0) > 0),
             }
@@ -165,7 +172,10 @@ class AgentEvaluationRunner:
         scope: TenantScope,
         dataset_code: str,
         limit: int = 5,
+        max_cases: int | None = None,
     ) -> EvaluationRunResult:
+        if max_cases is not None and max_cases < 1:
+            raise ValueError("max_cases must be positive")
         input_guard = InputSecurityGuard()
         domain_guard = DomainGuard()
         async with UnitOfWork(self.session_factory, scope=scope) as uow:
@@ -183,6 +193,8 @@ class AgentEvaluationRunner:
                 )
                 if case.expected_summary.get("kind") == _GUARD_KIND
             ]
+            if max_cases is not None:
+                cases = cases[:max_cases]
             if not cases:
                 raise DomainError("evaluation dataset has no guard cases")
 
@@ -204,7 +216,8 @@ class AgentEvaluationRunner:
                 status_hit = 1.0 if actual_status == expected_status else 0.0
                 domain_hit = 0.0
                 expected_domain = expected.get("domain")
-                if expected_status == "allow" and expected_domain:
+                domain_evaluated = expected_status == "allow" and bool(expected_domain)
+                if domain_evaluated:
                     domain_decision = domain_guard.evaluate(query)
                     domain_hit = 1.0 if (
                         domain_decision.status == "in_scope"
@@ -216,10 +229,12 @@ class AgentEvaluationRunner:
                     "domain_hit": domain_hit,
                     "blocked": 1.0 if actual_blocked else 0.0,
                 }
-                passed = status_hit > 0 and (expected_domain is None or domain_hit > 0)
+                passed = status_hit > 0 and (not domain_evaluated or domain_hit > 0)
                 per_case.append(
                     _CaseMetrics(
                         metrics=metrics,
+                        passed=passed,
+                        domain_evaluated=domain_evaluated,
                         expected_status=expected_status,
                         actual_status=actual_status,
                         expected_blocked=expected_blocked,
@@ -246,7 +261,7 @@ class AgentEvaluationRunner:
             aggregated: dict[str, object] = {
                 "kind": "guard",
                 "case_count": len(per_case),
-                "passed_count": sum(1 for c in per_case if c.metrics.get("status_hit", 0.0) > 0),
+                "passed_count": sum(1 for c in per_case if c.passed),
                 "status_accuracy": accuracy(
                     [str(c.actual_status) for c in per_case],
                     [str(c.expected_status) for c in per_case],
@@ -257,7 +272,7 @@ class AgentEvaluationRunner:
                 [bool(c.actual_blocked) for c in per_case],
             )
             aggregated.update(binary)
-            domain_cases = [c for c in per_case if c.metrics.get("domain_hit", 0.0) >= 0]
+            domain_cases = [c for c in per_case if c.domain_evaluated]
             domain_hits = [c.metrics["domain_hit"] for c in domain_cases]
             if domain_hits:
                 aggregated["domain_accuracy"] = fmean(domain_hits)

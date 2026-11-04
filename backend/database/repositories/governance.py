@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import Select, and_, or_, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database.base import TenantScope
@@ -52,6 +53,22 @@ def _hash_payload(payload: dict[str, Any]) -> str:
 class GovernanceRepository(TenantScopedRepository):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(session)
+
+    async def create_workflow_checkpoint_if_absent(
+        self, *, scope: TenantScope, thread_id: str, state_summary: dict[str, Any],
+        refund_idempotency_key: str, status: str, trace_id: UUID | None,
+    ) -> bool:
+        statement = (
+            insert(WorkflowCheckpoint)
+            .values(
+                id=uuid4(), tenant_id=scope.tenant_id, thread_id=thread_id,
+                state_summary=_sanitize(state_summary), refund_idempotency_key=refund_idempotency_key,
+                status=status, trace_id=trace_id,
+            )
+            .on_conflict_do_nothing(constraint="uq_workflow_checkpoints_tenant_thread")
+            .returning(WorkflowCheckpoint.id)
+        )
+        return await self.session.scalar(statement) is not None
 
     async def create_runtime_trace(
         self,

@@ -39,3 +39,124 @@ async def test_memory_service_persists_extracted_preference(
         )
     assert len(persisted) == len(records)
     assert all("sk-" not in record.payload_summary.get("content", "") for record in persisted)
+
+
+@pytest.mark.asyncio
+async def test_recall_decays_refreshes_and_isolates(session_factory, tenant_a, tenant_a_user):
+    from datetime import datetime, timezone, timedelta
+    from uuid import uuid4
+    now = datetime.now(timezone.utc)
+    scope = TenantScope(tenant_id=tenant_a.id, actor_id=tenant_a_user.id)
+    ids = []
+    async with session_factory() as session:
+        for content, age, expired, owner in [
+            ("preference=recent", 1, False, tenant_a_user.id),
+            ("preference=old", 60, False, tenant_a_user.id),
+            ("preference=expired", 0, True, tenant_a_user.id),
+            ("preference=tenant shared", 0, False, None),
+        ]:
+            row = MemoryRecord(id=uuid4(), tenant_id=tenant_a.id, user_id=owner,
+                memory_type="user_preference", payload_summary={"content": content},
+                payload_hash=uuid4().hex, source="conversation", confidence=0.8,
+                created_at=now-timedelta(days=age), updated_at=now-timedelta(days=age),
+                ttl_expires_at=now+timedelta(days=-1 if expired else 90))
+            session.add(row)
+            ids.append(row.id)
+        await session.commit()
+    service = MemoryService(session_factory)
+    assert await service.recall(scope=scope, limit=1) == ["preference=recent"]
+    from backend.database.unit_of_work import UnitOfWork
+    async with session_factory() as session:
+        unchanged = await session.get(MemoryRecord, ids[0])
+        assert unchanged.updated_at == now-timedelta(days=1)
+    async with UnitOfWork(session_factory, scope=scope) as uow:
+        await service.mark_used_in_uow(uow, scope=scope, contents=["preference=recent"])
+    async with session_factory() as session:
+        recent = await session.get(MemoryRecord, ids[0])
+        old = await session.get(MemoryRecord, ids[1])
+        assert recent.updated_at >= now
+        assert recent.created_at < now
+        assert recent.ttl_expires_at == now+timedelta(days=90)
+        assert old.updated_at == now-timedelta(days=60)
+    assert set(await service.recall(scope=scope)) == {"preference=recent", "preference=old"}
+    assert await service.recall(scope=TenantScope(tenant_id=tenant_a.id)) == []
+
+
+@pytest.mark.asyncio
+async def test_capture_deduplicates_concurrently_and_replaces_singleton(
+    session_factory, tenant_a, tenant_a_user,
+):
+    import asyncio
+    scope = TenantScope(tenant_id=tenant_a.id, actor_id=tenant_a_user.id)
+    service = MemoryService(session_factory)
+
+    async def capture(message):
+        return await service.capture(scope=scope, user_id=tenant_a_user.id,
+            customer_id=None, message=message)
+
+    first, second = await asyncio.gather(capture("使用中文"), capture("使用中文"))
+    assert first[0].id == second[0].id
+    replacement = await capture("使用英文")
+    assert replacement[0].id != first[0].id
+    recalled = await service.recall(scope=scope)
+    assert "preferred_language=en" in recalled
+    assert "preferred_language=zh" not in recalled
+    async with session_factory() as session:
+        retired = await session.get(MemoryRecord, first[0].id)
+        assert retired.deleted_at is not None
+    a = await capture("我偏好邮件通知")
+    b = await capture("我偏好邮件通知")
+    assert a[0].id == b[0].id
+    await capture("时区是 Asia/Shanghai")
+    await capture("时区是 Europe/London")
+    async with session_factory() as session:
+        active = list(await session.scalars(select(MemoryRecord).where(
+            MemoryRecord.tenant_id == tenant_a.id,
+            MemoryRecord.user_id == tenant_a_user.id,
+            MemoryRecord.deleted_at.is_(None),
+        )))
+    assert len(active) == 3
+    assert {row.payload_summary["content"] for row in active} == {
+        "preferred_language=en", "preference=邮件通知", "timezone=Europe/London",
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("retired", [False, True])
+async def test_usage_confirmation_does_not_revive_unavailable_memory(
+    session_factory, tenant_a, tenant_a_user, retired,
+):
+    from datetime import datetime, timezone, timedelta
+    from uuid import uuid4
+    from backend.database.unit_of_work import UnitOfWork
+    now = datetime.now(timezone.utc)
+    old = now-timedelta(days=10)
+    scope = TenantScope(tenant_id=tenant_a.id, actor_id=tenant_a_user.id)
+    memory_id = uuid4()
+    async with session_factory() as session:
+        session.add(MemoryRecord(id=memory_id, tenant_id=tenant_a.id, user_id=tenant_a_user.id,
+            memory_type="user_preference", payload_summary={"content": "preference=email"},
+            payload_hash=uuid4().hex, source="conversation", confidence=0.8,
+            created_at=old, updated_at=old, deleted_at=now if retired else None,
+            ttl_expires_at=now+timedelta(days=30) if retired else old))
+        await session.commit()
+    async with UnitOfWork(session_factory, scope=scope) as uow:
+        await MemoryService(session_factory).mark_used_in_uow(
+            uow, scope=scope, contents=["preference=email"],
+        )
+    async with session_factory() as session:
+        row = await session.get(MemoryRecord, memory_id)
+        assert row.updated_at == old
+        assert row.deleted_at == (now if retired else None)
+
+
+@pytest.mark.asyncio
+async def test_invalid_timezone_does_not_replace_existing_preference(session_factory, tenant_a, tenant_a_user):
+    scope = TenantScope(tenant_id=tenant_a.id, actor_id=tenant_a_user.id)
+    service = MemoryService(session_factory)
+    first = await service.capture(scope=scope, user_id=tenant_a_user.id, customer_id=None,
+                                  message="时区是 Asia/Shanghai")
+    assert first
+    assert await service.capture(scope=scope, user_id=tenant_a_user.id, customer_id=None,
+                                 message="时区是 Not/AZone") == []
+    assert await service.recall(scope=scope) == ["timezone=Asia/Shanghai"]

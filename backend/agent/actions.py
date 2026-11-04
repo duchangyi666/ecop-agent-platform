@@ -22,6 +22,7 @@ from backend.agent.policies.risk import HIGH_RISK_REFUND_THRESHOLD
 from backend.agent.tools.billing import BillingTool, RefundToolRequest
 from backend.core.retry import with_retry
 from backend.agent.tools.ticket import TicketCreateRequest, TicketTool
+from backend.auth.permissions import Permission
 from backend.database.base import TenantScope
 from backend.database.unit_of_work import UnitOfWork
 from backend.domain.common import DomainError
@@ -38,8 +39,8 @@ _ACTION_SYSTEM_PROMPT = (
     "- 用户问“我的工单/退款/扣费怎么样了”这类需要看真实数据的，用对应查询动作，系统会去查业务库再回答。\n"
     "- create_ticket：只说“建个工单”而没说是什么问题，ready=false 并在 question 只问一个问题；"
     "已说明具体问题则 ready=true 并在 subject 概括主题。\n"
-    "- request_refund：用户反映重复扣费/要求退款时用此动作；系统会自动核实是否真的存在重复扣费，"
-    "若不存在会如实告知并不退款，因此无需担心误退。若用户只是问退款政策，用 answer。"
+    "- request_refund：用户反映重复扣费/要求退款时用此动作；系统仅识别同一账单的疑似重复付款，"
+    "并创建本地退款申请，不代表已核实真实重复扣费或实际退款。若用户只是问退款政策，用 answer。"
 )
 
 
@@ -166,6 +167,25 @@ class ConversationActionExecutor:
     ) -> ActionResult | None:
         if decision.action == "answer":
             return None
+        required_permission = {
+            "request_refund": Permission.REFUND_REQUEST,
+            "create_ticket": Permission.TICKET_CREATE,
+            "query_ticket_status": Permission.TICKET_READ,
+        }.get(decision.action)
+        if required_permission is not None:
+            async with UnitOfWork(self.session_factory, scope=scope) as uow:
+                user = (
+                    await uow.identity.get_user_in_tenant(scope=scope, user_id=scope.actor_id)
+                    if scope.actor_id is not None else None
+                )
+                allowed = (
+                    user is not None and user.status == "active"
+                    and await uow.identity.has_permission(
+                        scope=scope, user_id=user.id, permission_code=required_permission,
+                    )
+                )
+            if not allowed:
+                return ActionResult(action=decision.action, summary="当前身份没有执行该操作的权限，请联系人工客服。")
         if decision.action == "request_refund":
             return await self._request_refund(scope=scope, thread_id=thread_id)
         if decision.action == "create_ticket":
@@ -218,11 +238,11 @@ class ConversationActionExecutor:
 
     @staticmethod
     def _find_duplicate(payments) -> object | None:
-        """Return the later payment of a same-amount pair within 24h, if any."""
+        """Return a possible duplicate on the same invoice within 24 hours."""
         ordered = sorted(payments, key=lambda p: p.paid_at)
         for i, first in enumerate(ordered):
             for second in ordered[i + 1 :]:
-                if second.amount == first.amount and (
+                if second.invoice_id == first.invoice_id and second.amount == first.amount and (
                     second.paid_at - first.paid_at
                 ) <= timedelta(hours=24):
                     return second
@@ -258,6 +278,11 @@ class ConversationActionExecutor:
                 )
             # Idempotency keyed by the payment so the same duplicate charge is
             # never refunded twice, regardless of conversation thread/turn.
+            locked_payment = await uow.billing.get_payment_for_tenant(
+                scope=scope, payment_id=duplicate.id, for_update=True,
+            )
+            if locked_payment is None or locked_payment.customer_id != customer_id:
+                raise DomainError("payment not found in customer scope")
             idempotency_key = f"chat-refund-{duplicate.id}"
             try:
                 refund = await tool.request(
@@ -274,20 +299,16 @@ class ConversationActionExecutor:
             approval_request_id: UUID | None = None
             approval_note = ""
             if duplicate.amount >= HIGH_RISK_REFUND_THRESHOLD:
-                checkpoint = await uow.governance.get_workflow_checkpoint(
-                    scope=scope, thread_id=thread_id
-                )
-                existing_approval_id = (
-                    (checkpoint.state_summary or {}).get("approval_request_id")
-                    if checkpoint is not None
-                    else None
-                )
-                if existing_approval_id:
-                    approval_request_id = UUID(str(existing_approval_id))
+                existing_approval = await uow.support.get_refund_approval(scope=scope, refund_id=refund.id)
+                if existing_approval is not None:
+                    approval_request_id = existing_approval.id
                     approval_note = (
-                        f" 该金额需要财务经理审批，审批单 {approval_request_id} 正在等待处理。"
+                        f" 该退款已有审批单 {approval_request_id}，请查看审批记录了解当前状态。"
                     )
                 else:
+                    checkpoint = await uow.governance.get_workflow_checkpoint(scope=scope, thread_id=thread_id)
+                    if checkpoint is not None:
+                        raise DomainError("workflow thread is already associated with another request")
                     approval = await uow.support.create_refund_approval_request(
                         scope=scope,
                         refund_id=refund.id,
@@ -321,8 +342,8 @@ class ConversationActionExecutor:
             return ActionResult(
                 action="request_refund",
                 summary=(
-                    f"经核实，您确有一笔重复扣费（{duplicate.paid_at:%m-%d} {duplicate.amount} 元，"
-                    "24 小时内出现两笔相同金额）。我已为您创建退款申请，"
+                    f"检测到同一账单可能存在重复扣费（{duplicate.paid_at:%m-%d} {duplicate.amount} 元，"
+                    "24 小时内出现两笔相同金额）。退款申请已登记，"
                     f"退款单号 {refund.id}，当前状态：{status}。"
                     f"{approval_note}"
                 ),
