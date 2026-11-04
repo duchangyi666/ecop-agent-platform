@@ -148,3 +148,15 @@ async def test_usage_confirmation_does_not_revive_unavailable_memory(
         row = await session.get(MemoryRecord, memory_id)
         assert row.updated_at == old
         assert row.deleted_at == (now if retired else None)
+
+
+@pytest.mark.asyncio
+async def test_invalid_timezone_does_not_replace_existing_preference(session_factory, tenant_a, tenant_a_user):
+    scope = TenantScope(tenant_id=tenant_a.id, actor_id=tenant_a_user.id)
+    service = MemoryService(session_factory)
+    first = await service.capture(scope=scope, user_id=tenant_a_user.id, customer_id=None,
+                                  message="时区是 Asia/Shanghai")
+    assert first
+    assert await service.capture(scope=scope, user_id=tenant_a_user.id, customer_id=None,
+                                 message="时区是 Not/AZone") == []
+    assert await service.recall(scope=scope) == ["timezone=Asia/Shanghai"]

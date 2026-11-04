@@ -43,3 +43,19 @@ def test_timezone_uses_latest_affirmative_clause():
         message="时区是 Asia/Shanghai；现在时区是 Europe/London",
     )
     assert candidates[0].content == "timezone=Europe/London"
+
+
+def test_language_codes_require_complete_values():
+    extractor = DeterministicMemoryExtractor()
+    for text in ("language=english", "language=zh-invalid", "mylanguage=en", "language=en_US"):
+        assert extractor.extract(message=text) == [], text
+    for text, expected in (("language=en", "preferred_language=en"),
+                           ("language=zh-cn", "preferred_language=zh")):
+        assert extractor.extract(message=text)[0].content == expected
+
+
+def test_timezone_must_exist_in_timezone_database():
+    extractor = DeterministicMemoryExtractor()
+    for text in ("时区是 Not/AZone", "timezone=../invalid", "时区为 Mars/Olympus"):
+        assert extractor.extract(message=text) == [], text
+    assert extractor.extract(message="时区是 Asia/Shanghai")[0].content == "timezone=Asia/Shanghai"

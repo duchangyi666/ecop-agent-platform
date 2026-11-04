@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,15 +43,18 @@ class DeterministicMemoryExtractor:
         candidates: list[MemoryCandidate] = []
         normalized = text.lower()
 
-        language_matches = [
-            (normalized.rfind(marker), language)
-            for language, markers in (
-                ("zh", self._language_markers),
-                ("en", ("使用英文", "英文沟通", "工作语言是英文", "language=en")),
-            )
-            for marker in markers if marker in normalized
-            and self._is_affirmative(normalized, normalized.rfind(marker))
-        ]
+        language_matches = []
+        for language, markers in (
+            ("zh", self._language_markers),
+            ("en", ("使用英文", "英文沟通", "工作语言是英文", "language=en")),
+        ):
+            for marker in markers:
+                pattern = re.escape(marker)
+                if marker.startswith("language="):
+                    pattern = r"(?<![\w])" + pattern + r"(?![\w-])"
+                for match in re.finditer(pattern, normalized):
+                    if self._is_affirmative(normalized, match.start()):
+                        language_matches.append((match.start(), language))
         if language_matches:
             _, language = max(language_matches)
             candidates.append(MemoryCandidate(
@@ -59,7 +63,8 @@ class DeterministicMemoryExtractor:
             ))
 
         timezone_match = next((match for match in reversed(list(self._timezone_pattern.finditer(text)))
-                               if self._is_affirmative(normalized, match.start())), None)
+                               if self._is_affirmative(normalized, match.start())
+                               and self._valid_timezone(match.group(1))), None)
         if timezone_match:
             candidates.append(
                 MemoryCandidate(
@@ -85,6 +90,14 @@ class DeterministicMemoryExtractor:
                 break
 
         return candidates
+
+    @staticmethod
+    def _valid_timezone(value: str) -> bool:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError):
+            return False
+        return True
 
     @staticmethod
     def _is_affirmative(text: str, index: int) -> bool:
