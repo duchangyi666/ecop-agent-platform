@@ -43,6 +43,7 @@ async def test_memory_management_is_private_and_delete_removes_recall(
     other_headers = {**api_headers, "X-Actor-Id": str(other_id)}
     assert client.delete(f"/api/v1/memories/{ids[0]}", headers=other_headers).status_code == 404
     assert client.delete(f"/api/v1/memories/{ids[1]}", headers=api_headers).status_code == 404
+    assert client.patch(f"/api/v1/memories/{ids[1]}", headers=api_headers, json={"value": "other"}).status_code == 404
     assert client.delete(f"/api/v1/memories/{ids[0]}", headers=api_headers).status_code == 204
     assert client.delete(f"/api/v1/memories/{ids[0]}", headers=api_headers).status_code == 404
     assert client.get("/api/v1/memories", headers=api_headers).json()["memories"] == []
@@ -54,3 +55,28 @@ async def test_memory_management_is_private_and_delete_removes_recall(
 async def test_memory_management_requires_permission(api_client, api_headers):
     assert api_client.get("/api/v1/memories", headers=api_headers).status_code == 403
     assert api_client.delete(f"/api/v1/memories/{uuid4()}", headers=api_headers).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_memory_correction_validates_value_and_replaces_recall(
+    customer_consult_api_client, api_headers, session_factory, tenant_a, tenant_a_user,
+):
+    scope = TenantScope(tenant_id=tenant_a.id, actor_id=tenant_a_user.id)
+    service = MemoryService(session_factory)
+    records = await service.capture(scope=scope, user_id=tenant_a_user.id,
+                                    customer_id=None, message="使用中文")
+    memory_id = records[0].id
+    client = customer_consult_api_client
+    url = f"/api/v1/memories/{memory_id}"
+    rejected = client.patch(url, headers=api_headers, json={"value": "unknown"})
+    assert rejected.status_code == 422
+    assert await service.recall(scope=scope) == ["preferred_language=zh"]
+    corrected = client.patch(url, headers=api_headers, json={"value": "en"})
+    assert corrected.status_code == 200, corrected.text
+    assert corrected.json()["memory_id"] != str(memory_id)
+    assert corrected.json()["content"] == "preferred_language=en"
+    assert await service.recall(scope=scope) == ["preferred_language=en"]
+    assert client.patch(url, headers=api_headers, json={"value": "zh"}).status_code == 404
+    async with session_factory() as session:
+        original = await session.get(MemoryRecord, memory_id)
+        assert original.deleted_at is not None

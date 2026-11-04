@@ -14,7 +14,7 @@ from backend.database.models.governance import MemoryRecord
 from backend.database.models.identity import User
 from backend.domain.common import DomainError
 from backend.database.unit_of_work import UnitOfWork
-from backend.memory.candidates import DeterministicMemoryExtractor
+from backend.memory.candidates import DeterministicMemoryExtractor, MemoryCandidate
 from backend.memory.policy import MemoryWritePolicy
 
 
@@ -111,6 +111,14 @@ class MemoryService:
         response: str | None = None,
     ) -> list[MemoryRecord]:
         candidates = self.extractor.extract(message=message, response=response)
+        return await self.store_candidates_in_uow(
+            uow, scope=scope, user_id=user_id, customer_id=customer_id, candidates=candidates,
+        )
+
+    async def store_candidates_in_uow(
+        self, uow: UnitOfWork, *, scope: TenantScope, user_id: UUID | None,
+        customer_id: UUID | None, candidates: list[MemoryCandidate],
+    ) -> list[MemoryRecord]:
         records: list[MemoryRecord] = []
         if candidates and user_id is not None:
             # Serialize even the first insert, when no memory row exists to lock.

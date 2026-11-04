@@ -34,6 +34,11 @@ function MemoryList({ tenantId, userId }: { tenantId: string; userId: string }) 
     onSuccess: () => client.invalidateQueries({ queryKey }),
   });
 
+  const correction = useMutation({
+    mutationFn: ({ id, value }: { id: string; value: string }) => api.patch<MemoryItem>(`/api/v1/memories/${id}`, { value }),
+    onSuccess: () => client.invalidateQueries({ queryKey }),
+  });
+
   if (query.isLoading) return <InlineLoader label="正在读取记忆" />;
   if (query.error) return <ErrorState error={query.error} onRetry={query.refetch} />;
   const memories = query.data?.memories ?? [];
@@ -41,6 +46,8 @@ function MemoryList({ tenantId, userId }: { tenantId: string; userId: string }) 
   return (
     <div className="space-y-4">
       {deletion.error && <ErrorState error={deletion.error} onRetry={() => { if (deletion.variables) deletion.mutate(deletion.variables); }} />}
+      {correction.error && <ErrorState error={correction.error} onRetry={() => { if (correction.variables) correction.mutate(correction.variables); }} />}
+      {correction.isSuccess && <p role="status" className="text-sm text-muted-foreground">记忆已更新，后续对话将使用新偏好。</p>}
       {deletion.isSuccess && <p role="status" className="text-sm text-muted-foreground">记忆已删除，后续对话将不再召回。</p>}
       {memories.length === 0 ? <EmptyState title="暂无记忆" description="明确表达的语言、时区和使用偏好会显示在这里。" /> : (
         <ul className="space-y-3">
@@ -52,7 +59,16 @@ function MemoryList({ tenantId, userId }: { tenantId: string; userId: string }) 
                   <p className="break-words text-sm">{memory.content === "preferred_language=zh" ? "使用中文" : memory.content === "preferred_language=en" ? "使用英文" : memory.content.replace(/^(preference|timezone)=/, "")}</p>
                   <p className="text-xs text-muted-foreground">最近活跃：{new Date(memory.last_active_at).toLocaleString()} · 到期：{new Date(memory.expires_at).toLocaleDateString()}</p>
                 </div>
-                <button type="button" disabled={deletion.isPending} className="shrink-0 rounded border px-3 py-1 text-sm disabled:opacity-50"
+                <button type="button" disabled={deletion.isPending || correction.isPending} className="shrink-0 rounded border px-3 py-1 text-sm disabled:opacity-50"
+                  onClick={() => {
+                    const current = memory.content.replace(/^(preferred_language|preference|timezone)=/, "");
+                    const display = memory.memory_type === "language_preference" ? (current === "zh" ? "中文" : "英文") : current;
+                    const hint = memory.memory_type === "language_preference" ? "修改语言：中文或英文" : memory.memory_type === "timezone_preference" ? "修改时区，例如 Asia/Shanghai" : "修改使用偏好";
+                    const input = window.prompt(hint, display)?.trim();
+                    const value = memory.memory_type === "language_preference" ? (input === "中文" ? "zh" : input === "英文" ? "en" : input) : input;
+                    if (value && value !== current) correction.mutate({ id: memory.memory_id, value });
+                  }}>修改</button>
+                <button type="button" disabled={deletion.isPending || correction.isPending} className="shrink-0 rounded border px-3 py-1 text-sm disabled:opacity-50"
                   onClick={() => {
                     if (window.confirm("删除这条记忆？后续对话将不再使用它。")) deletion.mutate(memory.memory_id);
                   }}>删除</button>
