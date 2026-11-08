@@ -5,7 +5,7 @@ from decimal import Decimal
 from enum import Enum
 from uuid import UUID, uuid4
 
-from sqlalchemy import CheckConstraint, DateTime, Enum as SAEnum, ForeignKey, ForeignKeyConstraint, JSON, String, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, DateTime, Enum as SAEnum, ForeignKey, ForeignKeyConstraint, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -332,6 +332,12 @@ class ConversationMessage(Base, TenantAuditMixin):
             name="fk_conversation_messages_tenant_author",
             ondelete="RESTRICT",
         ),
+        UniqueConstraint(
+            "conversation_id",
+            "turn_sequence",
+            "role",
+            name="uq_conversation_messages_conversation_turn_role",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -341,6 +347,9 @@ class ConversationMessage(Base, TenantAuditMixin):
     role: Mapped[str] = mapped_column(String(50), nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)
     visibility: Mapped[str] = mapped_column(String(50), nullable=False)
+    # Shared by the user and assistant messages of one consultation turn so
+    # history can be restored even when created_at ties or turns overlap.
+    turn_sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
 

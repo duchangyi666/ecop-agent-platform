@@ -48,9 +48,22 @@ def evaluate_refund_policy(context: RefundPolicyContext) -> PolicyDecision:
     )
 
 
+_OFFLINE_BILLING_CONTENT = "billing context and refund preview are required"
+_APPROVAL_HANDOFF = "当前退款请求需要人工审批后才能继续，已为您转交审核。"
+
+
 def policy_gate_node(state: AgentState) -> dict[str, object]:
-    if state.specialist_result is not None and state.specialist_result.status == "needs_policy_gate":
-        return {"next_action": "human_handoff"}
+    specialist = state.specialist_result
+    if specialist is not None and specialist.status == "needs_policy_gate":
+        # Offline billing has no approval summary. A live refund that opened an
+        # approval keeps that customer-safe summary as the handoff reply.
+        content = (specialist.content or "").strip()
+        final_response = content if content and content != _OFFLINE_BILLING_CONTENT else _APPROVAL_HANDOFF
+        return {
+            "status": "human_handoff",
+            "next_action": "human_handoff",
+            "final_response": final_response,
+        }
     return {"next_action": "finish"}
 
 

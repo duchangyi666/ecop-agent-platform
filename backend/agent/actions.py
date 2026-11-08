@@ -28,6 +28,9 @@ from backend.database.unit_of_work import UnitOfWork
 from backend.domain.common import DomainError
 from backend.llm.gateway import ModelGateway
 
+# Shown to the customer and copied into evidence. Internal exception text stays in the audit row.
+CUSTOMER_TOOL_FAILURE_SUMMARY = "业务操作暂时无法完成，请稍后重试或联系人工客服。"
+
 _ACTION_SYSTEM_PROMPT = (
     "你是 CloudDesk 客服的判断中枢，像经验丰富的客服主管一样审慎，不是命令执行器。"
     "结合对话历史判断用户当前这句话的意图与是否具备执行条件，只输出 JSON。"
@@ -138,23 +141,39 @@ class ConversationActionExecutor:
             return None, None
         if not decision.ready and decision.question:
             return None, decision.question
-        # Three-layer resilience around the business tool execution: transient
-        # failures retry, then degrade to "no action" so the conversation can
-        # still answer from knowledge instead of crashing.
+        # Transient failures retry, then degrade to "no action". Domain errors
+        # stay visible as a generic reply; the raw text is audit-only.
+        failed = False
+        failure_detail: str | None = None
+
+        def _tool_failure(exc: BaseException) -> ActionResult | None:
+            nonlocal failed, failure_detail
+            if isinstance(exc, DomainError):
+                failed = True
+                failure_detail = str(exc)[:500]
+                return ActionResult(action=decision.action, summary=CUSTOMER_TOOL_FAILURE_SUMMARY)
+            return None
+
         wrapped = with_retry(
             agent_type=domain,
-            agent_fallback=lambda exc: None,
-            system_fallback=lambda exc: None,
+            agent_fallback=_tool_failure,
+            system_fallback=_tool_failure,
         )(self.execute)
-        try:
-            result = await wrapped(
+        result = await wrapped(
+            scope=state.tenant_scope,
+            decision=decision,
+            user_message=user_message,
+            thread_id=thread_id,
+        )
+        if result is not None:
+            await self._record_tool_outcome(
                 scope=state.tenant_scope,
+                trace_id=state.trace_id,
                 decision=decision,
-                user_message=user_message,
-                thread_id=thread_id,
+                result=result,
+                status="failed" if failed else "succeeded",
+                error_summary=failure_detail if failed else None,
             )
-        except DomainError:
-            result = None
         return result, None
 
     async def execute(
@@ -197,6 +216,47 @@ class ConversationActionExecutor:
         if decision.action == "query_refund_status":
             return await self._query_refund_status(scope=scope)
         return None
+
+    async def _record_tool_outcome(
+        self,
+        *,
+        scope: TenantScope,
+        trace_id: UUID | None,
+        decision: ActionDecision,
+        result: ActionResult,
+        status: str,
+        error_summary: str | None,
+    ) -> None:
+        if trace_id is None or self.session_factory is None:
+            return
+        tool_name = {
+            "request_refund": "billing.request",
+            "list_payments": "billing.list_payments",
+            "query_refund_status": "billing.refund_status",
+            "create_ticket": "ticket.create",
+            "query_ticket_status": "ticket.status",
+        }.get(decision.action, decision.action)
+        try:
+            async with UnitOfWork(self.session_factory, scope=scope) as uow:
+                await uow.governance.record_tool_execution(
+                    scope=scope,
+                    trace_id=trace_id,
+                    tool_name=tool_name,
+                    status=status,
+                    arguments_summary={"action": decision.action},
+                    result_summary={
+                        "action": result.action,
+                        "refund_id": str(result.refund_id) if result.refund_id else None,
+                        "ticket_id": str(result.ticket_id) if result.ticket_id else None,
+                        "approval_request_id": (
+                            str(result.approval_request_id) if result.approval_request_id else None
+                        ),
+                    },
+                    error_summary=error_summary,
+                )
+        except Exception:
+            # The business result is already committed; audit must not hide it.
+            return
 
     async def _query_ticket_status(self, *, scope: TenantScope) -> ActionResult | None:
         customer_id = await self.resolve_customer(scope)
@@ -284,17 +344,14 @@ class ConversationActionExecutor:
             if locked_payment is None or locked_payment.customer_id != customer_id:
                 raise DomainError("payment not found in customer scope")
             idempotency_key = f"chat-refund-{duplicate.id}"
-            try:
-                refund = await tool.request(
-                    RefundToolRequest(
-                        scope=scope,
-                        payment_id=duplicate.id,
-                        idempotency_key=idempotency_key,
-                        amount=duplicate.amount,
-                    )
+            refund = await tool.request(
+                RefundToolRequest(
+                    scope=scope,
+                    payment_id=duplicate.id,
+                    idempotency_key=idempotency_key,
+                    amount=duplicate.amount,
                 )
-            except DomainError as exc:
-                return ActionResult(action="request_refund", summary=f"退款申请未通过校验：{exc}")
+            )
             status = refund.status.value if hasattr(refund.status, "value") else str(refund.status)
             approval_request_id: UUID | None = None
             approval_note = ""
@@ -417,6 +474,7 @@ def action_to_evidence(result: ActionResult) -> KnowledgeEvidence:
 
 
 __all__ = [
+    "CUSTOMER_TOOL_FAILURE_SUMMARY",
     "ActionDecision",
     "ActionResult",
     "ConversationActionExecutor",

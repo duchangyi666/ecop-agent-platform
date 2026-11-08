@@ -36,6 +36,36 @@ async def test_approval_interrupt_can_resume_with_same_idempotency_key() -> None
 
 
 @pytest.mark.asyncio
+async def test_resume_rejects_a_checkpoint_that_is_not_waiting() -> None:
+    checkpoint_store = InMemoryCheckpointStore()
+    paused = await run_agent_workflow(refund_request(), checkpoint_store, registry=None)
+    await resume_after_approval(paused.thread_id, checkpoint_store, approved=True)
+
+    with pytest.raises(ValueError, match="not awaiting approval"):
+        await resume_after_approval(paused.thread_id, checkpoint_store, approved=False)
+
+
+@pytest.mark.asyncio
+async def test_completed_consultation_cannot_be_approved_from_checkpoint() -> None:
+    checkpoint_store = InMemoryCheckpointStore()
+    request = refund_request().model_copy(
+        update={
+            "thread_id": "thread-consult-1",
+            "state": create_agent_state(
+                scope=TenantScope(tenant_id=uuid4()),
+                request_id=uuid4(),
+                message="客户咨询",
+            ),
+        }
+    )
+    finished = await run_agent_workflow(request, checkpoint_store, registry=None)
+
+    assert finished.status == "completed"
+    with pytest.raises(ValueError, match="not awaiting approval"):
+        await resume_after_approval(finished.thread_id, checkpoint_store, approved=True)
+
+
+@pytest.mark.asyncio
 async def test_checkpoint_store_returns_none_for_unknown_thread() -> None:
     checkpoint_store = InMemoryCheckpointStore()
 

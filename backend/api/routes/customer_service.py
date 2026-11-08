@@ -115,6 +115,9 @@ async def stream_customer_consultation(
                 await task
             except asyncio.CancelledError:
                 pass
+            cleanup = getattr(service, "turn_cleanup", None)
+            if cleanup is not None:
+                await cleanup
 
     return StreamingResponse(
         event_stream(),

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
@@ -7,7 +8,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, case, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -19,9 +20,10 @@ from backend.agent.agents.customer_service import (
 )
 from backend.agent.graphs.main_graph import build_main_graph
 from backend.core.orchestrator import route_intent
+from backend.agent.guards import InputSecurityGuard
 from backend.agent.nodes.guards import domain_guard_node, input_security_guard_node
 from backend.agent.state import AgentState, ConversationMessage, KnowledgeEvidence, create_agent_state
-from backend.database.models.support import Conversation, ConversationMessage as StoredConversationMessage
+from backend.database.models.support import AuditLog, Conversation, ConversationMessage as StoredConversationMessage
 from backend.database.models.governance import MemoryRecord
 from backend.database.unit_of_work import UnitOfWork
 from backend.domain.common import DomainError
@@ -65,6 +67,12 @@ def _decision_value(decision: Any, field_name: str) -> Any:
     return getattr(decision, field_name, None)
 
 
+def _state_value(state: Any, key: str, default=None):
+    if isinstance(state, dict):
+        return state.get(key, default)
+    return getattr(state, key, default)
+
+
 def _usage_provider(value: Any) -> str | None:
     if isinstance(value, ModelUsage):
         return value.provider
@@ -77,6 +85,81 @@ def _error_code(value: Any) -> str | None:
     if isinstance(value, dict):
         return value.get("code")
     return getattr(value, "code", None)
+
+
+_REDACTED_INPUT = "[输入因安全检查未保存]"
+_INTERRUPTED_REPLY = "回复已中断。请继续说明您的问题。"
+_FAILED_REPLY = "处理没有完成，请稍后重试。"
+
+
+def _history_filters(tenant_id: UUID, conversation_id: UUID, actor_id: UUID):
+    return (
+        StoredConversationMessage.tenant_id == tenant_id,
+        StoredConversationMessage.conversation_id == conversation_id,
+        StoredConversationMessage.deleted_at.is_(None),
+        StoredConversationMessage.visibility == "public",
+        or_(
+            and_(
+                StoredConversationMessage.role == "user",
+                StoredConversationMessage.author_id == actor_id,
+                StoredConversationMessage.author_type == "user",
+            ),
+            and_(
+                StoredConversationMessage.role == "assistant",
+                StoredConversationMessage.author_id.is_(None),
+                StoredConversationMessage.author_type == "agent",
+            ),
+        ),
+    )
+
+
+def _history_sort_key(item: StoredConversationMessage) -> tuple:
+    role_rank = 0 if item.role == "user" else 1 if item.role == "assistant" else 2
+    return (item.turn_sequence, role_rank, item.created_at, str(item.id))
+
+
+async def load_consultation_history(
+    session,
+    *,
+    tenant_id: UUID,
+    conversation_id: UUID,
+    actor_id: UUID,
+    limit: int,
+) -> list[ConversationMessage]:
+    """Return at most `limit` public messages, oldest first.
+
+    `limit` counts messages, not turns. Messages that share a turn_sequence stay
+    paired. If the newest-message window would start on an assistant reply whose
+    user message was cut off, that orphan reply is dropped.
+    """
+
+    if limit < 1:
+        return []
+    filters = _history_filters(tenant_id, conversation_id, actor_id)
+    role_rank = case(
+        (StoredConversationMessage.role == "user", 0),
+        (StoredConversationMessage.role == "assistant", 1),
+        else_=2,
+    )
+    messages = list(
+        await session.scalars(
+            select(StoredConversationMessage)
+            .where(*filters)
+            .order_by(
+                StoredConversationMessage.turn_sequence.desc(),
+                role_rank.desc(),
+                StoredConversationMessage.created_at.desc(),
+                StoredConversationMessage.id.desc(),
+            )
+            .limit(limit)
+        )
+    )
+    messages.sort(key=_history_sort_key)
+    if messages and messages[0].role == "assistant":
+        turn = messages[0].turn_sequence
+        if not any(item.role == "user" and item.turn_sequence == turn for item in messages):
+            messages = messages[1:]
+    return [ConversationMessage(role=item.role, content=item.body) for item in messages]
 
 
 async def run_customer_consultation_graph(
@@ -151,6 +234,7 @@ async def run_customer_consultation_graph(
 
 
 class CustomerConsultationService:
+    # Public messages restored into the next prompt. This caps messages, not turns.
     HISTORY_MESSAGE_LIMIT = 20
 
     def __init__(
@@ -169,125 +253,166 @@ class CustomerConsultationService:
         self.event_sink = event_sink
         self.memory_service = memory_service
         self.model_router = model_router or create_default_model_router()
+        self.turn_cleanup: asyncio.Task[Any] | None = None
 
     async def run(
         self,
         request: CustomerConsultationWorkflowRequest,
     ) -> CustomerConsultationResult:
-        created_conversation = False
+        self.turn_cleanup = None
+        turn_sequence: int | None = None
+        trace_id: UUID | None = None
+        conversation_id: UUID | None = None
+        assistant_persisted = False
         if self.session_factory is not None:
-            scope = request.state.tenant_scope
-            if scope.actor_id is None:
-                raise DomainError("consultation identity is required")
-            user_message = next(
-                (message.content for message in reversed(request.state.conversation) if message.role == "user"),
-                "",
-            )
-            async with UnitOfWork(self.session_factory, scope=scope) as uow:
-                customer_id = await uow.identity.get_customer_for_user(scope=scope, user_id=scope.actor_id)
-                statement = (
-                    insert(Conversation)
-                    .values(
-                        id=uuid4(), tenant_id=scope.tenant_id, user_id=scope.actor_id,
-                        customer_id=customer_id, thread_id=request.thread_id,
-                        channel="ai_chat", subject="智能客服对话", status="open",
-                    )
-                    .on_conflict_do_nothing(constraint="uq_conversations_tenant_id_thread_id")
-                    .returning(Conversation.id)
-                )
-                created_conversation = await uow.session.scalar(statement) is not None
-                conversation = await uow.support.get_conversation_by_thread(
-                    scope=scope, thread_id=request.thread_id,
-                )
-                if (conversation is None or conversation.user_id != scope.actor_id
-                        or conversation.channel != "ai_chat"):
-                    raise DomainError("consultation thread is unavailable")
-                messages = list(await uow.session.scalars(
-                    select(StoredConversationMessage)
-                    .where(
-                        StoredConversationMessage.tenant_id == scope.tenant_id,
-                        StoredConversationMessage.conversation_id == conversation.id,
-                        StoredConversationMessage.deleted_at.is_(None),
-                        StoredConversationMessage.visibility == "public",
-                        or_(
-                            and_(StoredConversationMessage.role == "user",
-                                 StoredConversationMessage.author_id == scope.actor_id,
-                                 StoredConversationMessage.author_type == "user"),
-                            and_(StoredConversationMessage.role == "assistant",
-                                 StoredConversationMessage.author_id.is_(None),
-                                 StoredConversationMessage.author_type == "agent"),
-                        ),
-                    )
-                    .order_by(StoredConversationMessage.created_at.desc(), StoredConversationMessage.id.desc())
-                    .limit(self.HISTORY_MESSAGE_LIMIT)
-                ))
-                history = [ConversationMessage(role=item.role, content=item.body) for item in reversed(messages)]
-            trusted_state = create_agent_state(
-                scope=scope, request_id=request.state.request_id, message=user_message, history=history,
-            )
-            request = request.model_copy(update={
-                "state": request.state.model_copy(update={"conversation": trusted_state.conversation}),
-            })
-        if self.event_sink is not None:
-            await self.event_sink(
-                "started",
-                {
-                    "thread_id": request.thread_id,
-                    "status": "started",
-                },
+            request, turn_sequence, trace_id, conversation_id = await self._prepare_persisted_turn(request)
+        else:
+            request = request.model_copy(
+                update={"state": request.state.model_copy(update={"thread_id": request.thread_id})}
             )
 
-        # The LangGraph main graph is the orchestrator: guards -> retrieve ->
-        # supervisor(LLM/classifier routing) -> domain agents(real tools) ->
-        # customer-service streamed answer. run() only emits lifecycle events
-        # and persists afterwards.
+        # Guards -> retrieve -> supervisor -> domain tools -> customer-service
+        # answer. The user turn is already committed so an SSE cancel can still
+        # restore the question.
         graph = build_main_graph(
             self.model_gateway,
             self.session_factory,
             self.event_sink,
             self.knowledge_retriever,
         )
-        final_state = await graph.compile().ainvoke(request.state)
+        final_state: Any = None
+        try:
+            if self.event_sink is not None:
+                await self.event_sink("started", {"thread_id": request.thread_id, "status": "started"})
+            final_state = await graph.compile().ainvoke(request.state)
+            result, evidence, user_message = self._result_from_graph(request, final_state)
+            if self.session_factory is not None:
+                audit_id, memory_count = await self._persist_completion(
+                    request,
+                    result,
+                    evidence=evidence,
+                    user_message=user_message,
+                    conversation_id=conversation_id,
+                    turn_sequence=turn_sequence,
+                    trace_id=trace_id,
+                    input_tokens=_state_value(final_state, "total_input_tokens", 0),
+                    output_tokens=_state_value(final_state, "total_output_tokens", 0),
+                    used_memories=_state_value(final_state, "used_memories", []) or [],
+                )
+                assistant_persisted = True
+                result = replace(
+                    result,
+                    trace_id=trace_id,
+                    audit_event_ids=[audit_id],
+                    memory_candidate_count=memory_count,
+                )
+            if self.event_sink is not None:
+                await self.event_sink(
+                    "completed",
+                    {
+                        "thread_id": request.thread_id,
+                        "status": result.status,
+                        "next_action": result.next_action,
+                        "final_response": result.final_response,
+                    },
+                )
+            return result
+        except asyncio.CancelledError:
+            if conversation_id is not None and not assistant_persisted:
+                if final_state is None:
+                    self.turn_cleanup = asyncio.create_task(
+                        self._close_turn(
+                            request,
+                            conversation_id=conversation_id,
+                            turn_sequence=turn_sequence,
+                            trace_id=trace_id,
+                            body=_INTERRUPTED_REPLY,
+                            trace_status="interrupted",
+                            error_summary="client cancelled the consultation stream",
+                        )
+                    )
+                else:
+                    result, evidence, user_message = self._result_from_graph(request, final_state)
+                    self.turn_cleanup = asyncio.create_task(
+                        self._persist_completion(
+                            request,
+                            result,
+                            evidence=evidence,
+                            user_message=user_message,
+                            conversation_id=conversation_id,
+                            turn_sequence=turn_sequence,
+                            trace_id=trace_id,
+                            input_tokens=_state_value(final_state, "total_input_tokens", 0),
+                            output_tokens=_state_value(final_state, "total_output_tokens", 0),
+                            used_memories=_state_value(final_state, "used_memories", []) or [],
+                        )
+                    )
+                try:
+                    await asyncio.shield(self.turn_cleanup)
+                except asyncio.CancelledError:
+                    pass
+            raise
+        except Exception:
+            if conversation_id is not None and not assistant_persisted:
+                await self._close_turn(
+                    request,
+                    conversation_id=conversation_id,
+                    turn_sequence=turn_sequence,
+                    trace_id=trace_id,
+                    body=_FAILED_REPLY,
+                    trace_status="failed",
+                    error_summary="consultation failed before a reply was saved",
+                )
+            raise
 
-        def _get(key: str, default=None):
-            if isinstance(final_state, dict):
-                return final_state.get(key, default)
-            return getattr(final_state, key, default)
-
-        evidence = _get("knowledge_evidence", []) or []
+    async def _prepare_persisted_turn(
+        self,
+        request: CustomerConsultationWorkflowRequest,
+    ) -> tuple[CustomerConsultationWorkflowRequest, int, UUID, UUID]:
+        scope = request.state.tenant_scope
+        if scope.actor_id is None:
+            raise DomainError("consultation identity is required")
         user_message = next(
             (message.content for message in reversed(request.state.conversation) if message.role == "user"),
             "",
         )
-        guard_status = _decision_value(_get("guard_decision"), "status")
-        input_restricted = guard_status in {"block", "human_handoff"}
-        persisted_message = "[输入因安全检查未保存]" if input_restricted else user_message
-        result = CustomerConsultationResult(
-            thread_id=request.thread_id,
-            status=_get("status", "completed"),
-            next_action=_get("next_action", "finish"),
-            final_response=_get("final_response"),
-            response_review=_get("response_review"),
-            model_provider=_usage_provider(_get("model_usage")),
-            model_error_code=_error_code(_get("model_error")),
-        )
-        result = replace(result, knowledge_evidence_count=len(evidence), input_restricted=input_restricted)
-        if self.event_sink is not None:
-            await self.event_sink(
-                "completed",
-                {
-                    "thread_id": request.thread_id,
-                    "status": result.status,
-                    "next_action": result.next_action,
-                    "final_response": result.final_response,
-                },
-            )
-        if self.session_factory is None:
-            return result
-
-        scope = request.state.tenant_scope
-        route = self.model_router.resolve(ModelTask.CUSTOMER_SERVICE)
+        restricted = InputSecurityGuard().evaluate(user_message).status in {"block", "human_handoff"}
+        persisted_message = _REDACTED_INPUT if restricted else user_message
         async with UnitOfWork(self.session_factory, scope=scope) as uow:
+            customer_id = await uow.identity.get_customer_for_user(scope=scope, user_id=scope.actor_id)
+            statement = (
+                insert(Conversation)
+                .values(
+                    id=uuid4(), tenant_id=scope.tenant_id, user_id=scope.actor_id,
+                    customer_id=customer_id, thread_id=request.thread_id,
+                    channel="ai_chat", subject="智能客服对话", status="open",
+                )
+                .on_conflict_do_nothing(constraint="uq_conversations_tenant_id_thread_id")
+                .returning(Conversation.id)
+            )
+            created_conversation = await uow.session.scalar(statement) is not None
+            conversation = await uow.support.get_conversation_by_thread(scope=scope, thread_id=request.thread_id)
+            if conversation is None or conversation.user_id != scope.actor_id or conversation.channel != "ai_chat":
+                raise DomainError("consultation thread is unavailable")
+            await uow.support.lock_conversation(scope=scope, conversation_id=conversation.id)
+            history = await load_consultation_history(
+                uow.session,
+                tenant_id=scope.tenant_id,
+                conversation_id=conversation.id,
+                actor_id=scope.actor_id,
+                limit=self.HISTORY_MESSAGE_LIMIT,
+            )
+            user_row = await uow.support.append_conversation_message(
+                scope=scope,
+                conversation_id=conversation.id,
+                author_id=scope.actor_id,
+                author_type="user",
+                role="user",
+                body=persisted_message[:4000],
+                visibility="public",
+            )
+            if created_conversation:
+                conversation.subject = persisted_message[:255] or "智能客服对话"
             trace = await uow.governance.create_runtime_trace(
                 scope=scope,
                 trace_key=f"{request.thread_id}-{request.state.request_id}",
@@ -297,11 +422,105 @@ class CustomerConsultationService:
                     f"{request.thread_id}:{request.state.request_id}".encode("utf-8")
                 ).hexdigest(),
             )
-            memory_records: list[MemoryRecord] = []
-            if self.memory_service is not None and not input_restricted:
-                await self.memory_service.mark_used_in_uow(
-                    uow, scope=scope, contents=_get("used_memories", []) or [],
+            turn_sequence = user_row.turn_sequence
+            trace_id = trace.id
+            conversation_id = conversation.id
+        trusted_state = create_agent_state(
+            scope=scope,
+            request_id=request.state.request_id,
+            message=user_message,
+            history=history,
+            thread_id=request.thread_id,
+        )
+        prepared = request.model_copy(update={
+            "state": request.state.model_copy(update={
+                "conversation": trusted_state.conversation,
+                "thread_id": request.thread_id,
+                "trace_id": trace_id,
+            }),
+        })
+        return prepared, turn_sequence, trace_id, conversation_id
+
+    @staticmethod
+    def _result_from_graph(
+        request: CustomerConsultationWorkflowRequest,
+        final_state: Any,
+    ) -> tuple[CustomerConsultationResult, list[Any], str]:
+        evidence = _state_value(final_state, "knowledge_evidence", []) or []
+        user_message = next(
+            (message.content for message in reversed(request.state.conversation) if message.role == "user"),
+            "",
+        )
+        guard_status = _decision_value(_state_value(final_state, "guard_decision"), "status")
+        input_restricted = guard_status in {"block", "human_handoff"}
+        result = CustomerConsultationResult(
+            thread_id=request.thread_id,
+            status=_state_value(final_state, "status", "completed"),
+            next_action=_state_value(final_state, "next_action", "finish"),
+            final_response=_state_value(final_state, "final_response"),
+            response_review=_state_value(final_state, "response_review"),
+            model_provider=_usage_provider(_state_value(final_state, "model_usage")),
+            model_error_code=_error_code(_state_value(final_state, "model_error")),
+        )
+        return (
+            replace(result, knowledge_evidence_count=len(evidence), input_restricted=input_restricted),
+            evidence,
+            user_message,
+        )
+
+    async def _persist_completion(
+        self,
+        request: CustomerConsultationWorkflowRequest,
+        result: CustomerConsultationResult,
+        *,
+        evidence: list[Any],
+        user_message: str,
+        conversation_id: UUID | None,
+        turn_sequence: int | None,
+        trace_id: UUID | None,
+        input_tokens: int,
+        output_tokens: int,
+        used_memories: list[str],
+    ) -> tuple[UUID, int]:
+        scope = request.state.tenant_scope
+        route = self.model_router.resolve(ModelTask.CUSTOMER_SERVICE)
+        async with UnitOfWork(self.session_factory, scope=scope) as uow:
+            reply_already_stored = False
+            if conversation_id is not None and turn_sequence is not None:
+                existing_reply = await uow.session.scalar(
+                    select(StoredConversationMessage).where(
+                        StoredConversationMessage.tenant_id == scope.tenant_id,
+                        StoredConversationMessage.conversation_id == conversation_id,
+                        StoredConversationMessage.turn_sequence == turn_sequence,
+                        StoredConversationMessage.role == "assistant",
+                        StoredConversationMessage.deleted_at.is_(None),
+                    )
                 )
+                if existing_reply is not None:
+                    reply_already_stored = True
+                    audit = await uow.session.scalar(
+                        select(AuditLog)
+                        .where(
+                            AuditLog.tenant_id == scope.tenant_id,
+                            AuditLog.resource_type == "consultation",
+                            AuditLog.metadata_summary["thread_id"].as_string() == request.thread_id,
+                        )
+                        .order_by(AuditLog.created_at.desc())
+                        .limit(1)
+                    )
+                    if trace_id is not None:
+                        await uow.governance.complete_runtime_trace(
+                            trace_id=trace_id,
+                            status=result.status,
+                            error_summary=None,
+                            total_input_tokens=input_tokens,
+                            total_output_tokens=output_tokens,
+                        )
+                    if audit is not None:
+                        return audit.id, 0
+            memory_records: list[MemoryRecord] = []
+            if self.memory_service is not None and not result.input_restricted and not reply_already_stored:
+                await self.memory_service.mark_used_in_uow(uow, scope=scope, contents=used_memories)
                 memory_records = await self.memory_service.capture_in_uow(
                     uow,
                     scope=scope,
@@ -331,63 +550,57 @@ class CustomerConsultationService:
                     "model_route_model": route.model,
                 },
             )
-            # Persist the conversation and this turn's messages so dialogue
-            # history is a real business record, not only browser state.
-            customer_id = request.state.customer_id
-            if customer_id is None and scope.actor_id is not None:
-                customer_id = await uow.identity.get_customer_for_user(
-                    scope=scope, user_id=scope.actor_id
-                )
-            conversation = await uow.support.get_conversation_by_thread(
-                scope=scope, thread_id=request.thread_id
-            )
-            if conversation is None:
-                conversation = await uow.support.create_conversation(
-                    scope=scope,
-                    customer_id=customer_id,
-                    user_id=scope.actor_id,
-                    channel="ai_chat",
-                    subject=(persisted_message[:255] or "智能客服对话"),
-                )
-                conversation.thread_id = request.thread_id
-            elif conversation.user_id != scope.actor_id:
-                raise DomainError("consultation thread is unavailable")
-            if created_conversation:
-                conversation.subject = persisted_message[:255] or "智能客服对话"
-            await uow.support.append_conversation_message(
-                scope=scope,
-                conversation_id=conversation.id,
-                author_id=scope.actor_id,
-                author_type="user",
-                role="user",
-                body=persisted_message[:4000],
-                visibility="public",
-            )
-            if result.final_response:
+            if result.final_response and conversation_id is not None and turn_sequence is not None:
                 await uow.support.append_conversation_message(
                     scope=scope,
-                    conversation_id=conversation.id,
+                    conversation_id=conversation_id,
                     author_id=None,
                     author_type="agent",
                     role="assistant",
                     body=result.final_response[:4000],
                     visibility="public",
+                    turn_sequence=turn_sequence,
                 )
+            if trace_id is not None:
+                await uow.governance.complete_runtime_trace(
+                    trace_id=trace_id,
+                    status=result.status,
+                    error_summary=None,
+                    total_input_tokens=input_tokens,
+                    total_output_tokens=output_tokens,
+                )
+        return audit.id, len(memory_records)
 
-            await uow.governance.complete_runtime_trace(
-                trace_id=trace.id,
-                status=result.status,
-                error_summary=None,
-                total_input_tokens=_get("total_input_tokens", 0),
-                total_output_tokens=_get("total_output_tokens", 0),
-            )
-
-        return replace(
-            result,
-            trace_id=trace.id,
-            audit_event_ids=[audit.id],
-            memory_candidate_count=len(memory_records),
-        )
+    async def _close_turn(
+        self,
+        request: CustomerConsultationWorkflowRequest,
+        *,
+        conversation_id: UUID,
+        turn_sequence: int | None,
+        trace_id: UUID | None,
+        body: str,
+        trace_status: str,
+        error_summary: str,
+    ) -> None:
+        scope = request.state.tenant_scope
+        async with UnitOfWork(self.session_factory, scope=scope) as uow:
+            if turn_sequence is not None:
+                await uow.support.append_conversation_message(
+                    scope=scope,
+                    conversation_id=conversation_id,
+                    author_id=None,
+                    author_type="agent",
+                    role="assistant",
+                    body=body,
+                    visibility="public",
+                    turn_sequence=turn_sequence,
+                )
+            if trace_id is not None:
+                await uow.governance.complete_runtime_trace(
+                    trace_id=trace_id,
+                    status=trace_status,
+                    error_summary=error_summary,
+                )
 
     async def _emit_tokens(self, thread_id: str, text: str) -> None:
         if self.event_sink is None or not text:
@@ -502,5 +715,6 @@ __all__ = [
     "CustomerConsultationResult",
     "CustomerConsultationService",
     "CustomerConsultationWorkflowRequest",
+    "load_consultation_history",
     "run_customer_consultation_graph",
 ]

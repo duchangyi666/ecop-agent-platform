@@ -71,6 +71,8 @@ async def resume_after_approval(
     checkpoint = await checkpointer.load(thread_id)
     if checkpoint is None:
         raise KeyError(f"checkpoint not found: {thread_id}")
+    if checkpoint.get("status") != "awaiting_approval":
+        raise ValueError(f"checkpoint is not awaiting approval: {checkpoint.get('status')}")
     status = "approved_for_execution" if approved else "rejected"
     checkpoint["status"] = status
     await checkpointer.save(thread_id, checkpoint)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
@@ -20,6 +21,7 @@ from backend.llm.contracts import ResponseDraft
 from backend.llm.gateway import ModelGateway
 
 EventSink = Any
+logger = logging.getLogger(__name__)
 
 
 def _last_user_message(state: AgentState) -> str:
@@ -27,6 +29,11 @@ def _last_user_message(state: AgentState) -> str:
         if message.role == "user":
             return message.content
     return ""
+
+
+def _business_thread_id(state: AgentState) -> str:
+    thread_id = state.thread_id.strip() if isinstance(state.thread_id, str) else ""
+    return thread_id or str(state.request_id)
 
 
 def _as_graph(async_node) -> Any:
@@ -61,13 +68,14 @@ def _make_retrieve_node(
             evidence = await retriever.retrieve(
                 scope=state.tenant_scope, query=_last_user_message(state), limit=5
             )
-        except Exception:  # noqa: BLE001 - retrieval must never break the flow
+        except Exception as exc:  # noqa: BLE001 - retrieval must never break the flow
+            logger.warning("knowledge retrieval failed (%s)", type(exc).__name__)
             evidence = []
         if event_sink is not None:
             await event_sink(
                 "evidence",
                 {
-                    "thread_id": str(state.request_id),
+                    "thread_id": _business_thread_id(state),
                     "count": len(evidence),
                     "results": [
                         {
@@ -82,7 +90,11 @@ def _make_retrieve_node(
                 },
             )
         from backend.memory.service import MemoryService
-        memories = await MemoryService(session_factory).recall(scope=state.tenant_scope)
+        try:
+            memories = await MemoryService(session_factory).recall(scope=state.tenant_scope)
+        except Exception as exc:  # noqa: BLE001 - memory lookup must not break the reply
+            logger.warning("memory recall failed (%s)", type(exc).__name__)
+            memories = []
         return {"knowledge_evidence": evidence, "recalled_memories": memories}
 
     return retrieve_node
@@ -117,7 +129,7 @@ def _make_domain_node(
             state,
             domain=domain,
             user_message=_last_user_message(state),
-            thread_id=str(state.request_id),
+            thread_id=_business_thread_id(state),
         )
         if clarification is not None:
             return {
@@ -130,18 +142,28 @@ def _make_domain_node(
                 await event_sink(
                     "action",
                     {
-                        "thread_id": str(state.request_id),
+                        "thread_id": _business_thread_id(state),
                         "action": action_result.action,
                         "summary": action_result.summary,
                     },
                 )
-            return {
+            update: dict[str, object] = {
                 "knowledge_evidence": [
                     *state.knowledge_evidence,
                     action_to_evidence(action_result),
                 ],
                 "next_action": "route_customer",
             }
+            # A persisted approval is not a finished turn. Route it through the
+            # policy gate so status stays human_handoff instead of completed.
+            if action_result.approval_request_id is not None:
+                update["specialist_result"] = SpecialistResult(
+                    specialist=domain.removeprefix("route_"),
+                    route=domain,
+                    status="needs_policy_gate",
+                    content=action_result.summary,
+                )
+            return update
         return {"next_action": "route_customer"}
 
     return domain_node

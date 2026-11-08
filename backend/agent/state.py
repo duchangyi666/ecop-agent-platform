@@ -36,6 +36,7 @@ class AgentState(BaseModel):
 
     request_id: UUID
     tenant_scope: TenantScope
+    thread_id: str | None = None
     conversation: list[ConversationMessage] = Field(default_factory=list)
     customer_id: UUID | None = None
     recalled_memories: list[str] = Field(default_factory=list)
@@ -66,6 +67,7 @@ def create_agent_state(
     request_id: UUID,
     message: str,
     history: list[ConversationMessage] | None = None,
+    thread_id: str | None = None,
 ) -> AgentState:
     """Build agent state. `history` carries prior turns so the model can
     answer with multi-turn context; the current user message is appended."""
@@ -79,6 +81,7 @@ def create_agent_state(
     return AgentState(
         request_id=request_id,
         tenant_scope=scope,
+        thread_id=thread_id,
         conversation=conversation,
     )
 
