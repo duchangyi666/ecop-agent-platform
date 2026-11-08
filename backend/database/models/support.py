@@ -332,6 +332,12 @@ class ConversationMessage(Base, TenantAuditMixin):
             name="fk_conversation_messages_tenant_author",
             ondelete="RESTRICT",
         ),
+        UniqueConstraint(
+            "conversation_id",
+            "turn_sequence",
+            "role",
+            name="uq_conversation_messages_conversation_turn_role",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -343,7 +349,7 @@ class ConversationMessage(Base, TenantAuditMixin):
     visibility: Mapped[str] = mapped_column(String(50), nullable=False)
     # Shared by the user and assistant messages of one consultation turn so
     # history can be restored even when created_at ties or turns overlap.
-    turn_sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    turn_sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
 

@@ -61,4 +61,4 @@ def test_main_graph_routes_billing_to_policy_gate() -> None:
     assert result["specialist_result"].agent_name == "billing"
     assert result["next_action"] == "human_handoff"
     assert result["status"] == "human_handoff"
-    assert result["final_response"]
+    assert result["final_response"] == "当前退款请求需要人工审批后才能继续，已为您转交审核。"

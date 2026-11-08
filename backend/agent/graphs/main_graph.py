@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
@@ -20,6 +21,7 @@ from backend.llm.contracts import ResponseDraft
 from backend.llm.gateway import ModelGateway
 
 EventSink = Any
+logger = logging.getLogger(__name__)
 
 
 def _last_user_message(state: AgentState) -> str:
@@ -66,7 +68,8 @@ def _make_retrieve_node(
             evidence = await retriever.retrieve(
                 scope=state.tenant_scope, query=_last_user_message(state), limit=5
             )
-        except Exception:  # noqa: BLE001 - retrieval must never break the flow
+        except Exception as exc:  # noqa: BLE001 - retrieval must never break the flow
+            logger.warning("knowledge retrieval failed (%s)", type(exc).__name__)
             evidence = []
         if event_sink is not None:
             await event_sink(
@@ -89,7 +92,8 @@ def _make_retrieve_node(
         from backend.memory.service import MemoryService
         try:
             memories = await MemoryService(session_factory).recall(scope=state.tenant_scope)
-        except Exception:  # noqa: BLE001 - memory lookup must not break the reply
+        except Exception as exc:  # noqa: BLE001 - memory lookup must not break the reply
+            logger.warning("memory recall failed (%s)", type(exc).__name__)
             memories = []
         return {"knowledge_evidence": evidence, "recalled_memories": memories}
 
@@ -143,13 +147,23 @@ def _make_domain_node(
                         "summary": action_result.summary,
                     },
                 )
-            return {
+            update: dict[str, object] = {
                 "knowledge_evidence": [
                     *state.knowledge_evidence,
                     action_to_evidence(action_result),
                 ],
                 "next_action": "route_customer",
             }
+            # A persisted approval is not a finished turn. Route it through the
+            # policy gate so status stays human_handoff instead of completed.
+            if action_result.approval_request_id is not None:
+                update["specialist_result"] = SpecialistResult(
+                    specialist=domain.removeprefix("route_"),
+                    route=domain,
+                    status="needs_policy_gate",
+                    content=action_result.summary,
+                )
+            return update
         return {"next_action": "route_customer"}
 
     return domain_node

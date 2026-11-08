@@ -37,7 +37,18 @@ def upgrade() -> None:
         WHERE message.id = numbered.id
         """
     )
+    op.alter_column("conversation_messages", "turn_sequence", server_default=None)
+    op.create_unique_constraint(
+        "uq_conversation_messages_conversation_turn_role",
+        "conversation_messages",
+        ["conversation_id", "turn_sequence", "role"],
+    )
 
 
 def downgrade() -> None:
+    op.drop_constraint(
+        "uq_conversation_messages_conversation_turn_role",
+        "conversation_messages",
+        type_="unique",
+    )
     op.drop_column("conversation_messages", "turn_sequence")

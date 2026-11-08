@@ -8,7 +8,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, case, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -23,7 +23,7 @@ from backend.core.orchestrator import route_intent
 from backend.agent.guards import InputSecurityGuard
 from backend.agent.nodes.guards import domain_guard_node, input_security_guard_node
 from backend.agent.state import AgentState, ConversationMessage, KnowledgeEvidence, create_agent_state
-from backend.database.models.support import Conversation, ConversationMessage as StoredConversationMessage
+from backend.database.models.support import AuditLog, Conversation, ConversationMessage as StoredConversationMessage
 from backend.database.models.governance import MemoryRecord
 from backend.database.unit_of_work import UnitOfWork
 from backend.domain.common import DomainError
@@ -113,6 +113,11 @@ def _history_filters(tenant_id: UUID, conversation_id: UUID, actor_id: UUID):
     )
 
 
+def _history_sort_key(item: StoredConversationMessage) -> tuple:
+    role_rank = 0 if item.role == "user" else 1 if item.role == "assistant" else 2
+    return (item.turn_sequence, role_rank, item.created_at, str(item.id))
+
+
 async def load_consultation_history(
     session,
     *,
@@ -121,36 +126,39 @@ async def load_consultation_history(
     actor_id: UUID,
     limit: int,
 ) -> list[ConversationMessage]:
-    """Restore turns by sequence so equal timestamps and overlapping writes stay paired."""
+    """Return at most `limit` public messages, oldest first.
 
+    `limit` counts messages, not turns. Messages that share a turn_sequence stay
+    paired. If the newest-message window would start on an assistant reply whose
+    user message was cut off, that orphan reply is dropped.
+    """
+
+    if limit < 1:
+        return []
     filters = _history_filters(tenant_id, conversation_id, actor_id)
-    turn_rows = list(
+    role_rank = case(
+        (StoredConversationMessage.role == "user", 0),
+        (StoredConversationMessage.role == "assistant", 1),
+        else_=2,
+    )
+    messages = list(
         await session.scalars(
-            select(StoredConversationMessage.turn_sequence)
+            select(StoredConversationMessage)
             .where(*filters)
-            .group_by(StoredConversationMessage.turn_sequence)
-            .order_by(StoredConversationMessage.turn_sequence.desc())
+            .order_by(
+                StoredConversationMessage.turn_sequence.desc(),
+                role_rank.desc(),
+                StoredConversationMessage.created_at.desc(),
+                StoredConversationMessage.id.desc(),
+            )
             .limit(limit)
         )
     )
-    if not turn_rows:
-        return []
-    messages = list(
-        await session.scalars(
-            select(StoredConversationMessage).where(
-                *filters,
-                StoredConversationMessage.turn_sequence.in_(turn_rows),
-            )
-        )
-    )
-    messages.sort(
-        key=lambda item: (
-            item.turn_sequence,
-            0 if item.role == "user" else 1 if item.role == "assistant" else 2,
-            item.created_at,
-            str(item.id),
-        )
-    )
+    messages.sort(key=_history_sort_key)
+    if messages and messages[0].role == "assistant":
+        turn = messages[0].turn_sequence
+        if not any(item.role == "user" and item.turn_sequence == turn for item in messages):
+            messages = messages[1:]
     return [ConversationMessage(role=item.role, content=item.body) for item in messages]
 
 
@@ -226,6 +234,7 @@ async def run_customer_consultation_graph(
 
 
 class CustomerConsultationService:
+    # Public messages restored into the next prompt. This caps messages, not turns.
     HISTORY_MESSAGE_LIMIT = 20
 
     def __init__(
@@ -476,8 +485,41 @@ class CustomerConsultationService:
         scope = request.state.tenant_scope
         route = self.model_router.resolve(ModelTask.CUSTOMER_SERVICE)
         async with UnitOfWork(self.session_factory, scope=scope) as uow:
+            reply_already_stored = False
+            if conversation_id is not None and turn_sequence is not None:
+                existing_reply = await uow.session.scalar(
+                    select(StoredConversationMessage).where(
+                        StoredConversationMessage.tenant_id == scope.tenant_id,
+                        StoredConversationMessage.conversation_id == conversation_id,
+                        StoredConversationMessage.turn_sequence == turn_sequence,
+                        StoredConversationMessage.role == "assistant",
+                        StoredConversationMessage.deleted_at.is_(None),
+                    )
+                )
+                if existing_reply is not None:
+                    reply_already_stored = True
+                    audit = await uow.session.scalar(
+                        select(AuditLog)
+                        .where(
+                            AuditLog.tenant_id == scope.tenant_id,
+                            AuditLog.resource_type == "consultation",
+                            AuditLog.metadata_summary["thread_id"].as_string() == request.thread_id,
+                        )
+                        .order_by(AuditLog.created_at.desc())
+                        .limit(1)
+                    )
+                    if trace_id is not None:
+                        await uow.governance.complete_runtime_trace(
+                            trace_id=trace_id,
+                            status=result.status,
+                            error_summary=None,
+                            total_input_tokens=input_tokens,
+                            total_output_tokens=output_tokens,
+                        )
+                    if audit is not None:
+                        return audit.id, 0
             memory_records: list[MemoryRecord] = []
-            if self.memory_service is not None and not result.input_restricted:
+            if self.memory_service is not None and not result.input_restricted and not reply_already_stored:
                 await self.memory_service.mark_used_in_uow(uow, scope=scope, contents=used_memories)
                 memory_records = await self.memory_service.capture_in_uow(
                     uow,

@@ -28,6 +28,9 @@ from backend.database.unit_of_work import UnitOfWork
 from backend.domain.common import DomainError
 from backend.llm.gateway import ModelGateway
 
+# Shown to the customer and copied into evidence. Internal exception text stays in the audit row.
+CUSTOMER_TOOL_FAILURE_SUMMARY = "业务操作暂时无法完成，请稍后重试或联系人工客服。"
+
 _ACTION_SYSTEM_PROMPT = (
     "你是 CloudDesk 客服的判断中枢，像经验丰富的客服主管一样审慎，不是命令执行器。"
     "结合对话历史判断用户当前这句话的意图与是否具备执行条件，只输出 JSON。"
@@ -139,14 +142,16 @@ class ConversationActionExecutor:
         if not decision.ready and decision.question:
             return None, decision.question
         # Transient failures retry, then degrade to "no action". Domain errors
-        # are business rejections and must stay visible to the reply.
+        # stay visible as a generic reply; the raw text is audit-only.
         failed = False
+        failure_detail: str | None = None
 
         def _tool_failure(exc: BaseException) -> ActionResult | None:
-            nonlocal failed
+            nonlocal failed, failure_detail
             if isinstance(exc, DomainError):
                 failed = True
-                return ActionResult(action=decision.action, summary=f"业务操作未完成：{exc}")
+                failure_detail = str(exc)[:500]
+                return ActionResult(action=decision.action, summary=CUSTOMER_TOOL_FAILURE_SUMMARY)
             return None
 
         wrapped = with_retry(
@@ -167,7 +172,7 @@ class ConversationActionExecutor:
                 decision=decision,
                 result=result,
                 status="failed" if failed else "succeeded",
-                error_summary=result.summary if failed else None,
+                error_summary=failure_detail if failed else None,
             )
         return result, None
 
@@ -339,17 +344,14 @@ class ConversationActionExecutor:
             if locked_payment is None or locked_payment.customer_id != customer_id:
                 raise DomainError("payment not found in customer scope")
             idempotency_key = f"chat-refund-{duplicate.id}"
-            try:
-                refund = await tool.request(
-                    RefundToolRequest(
-                        scope=scope,
-                        payment_id=duplicate.id,
-                        idempotency_key=idempotency_key,
-                        amount=duplicate.amount,
-                    )
+            refund = await tool.request(
+                RefundToolRequest(
+                    scope=scope,
+                    payment_id=duplicate.id,
+                    idempotency_key=idempotency_key,
+                    amount=duplicate.amount,
                 )
-            except DomainError as exc:
-                return ActionResult(action="request_refund", summary=f"退款申请未通过校验：{exc}")
+            )
             status = refund.status.value if hasattr(refund.status, "value") else str(refund.status)
             approval_request_id: UUID | None = None
             approval_note = ""
@@ -472,6 +474,7 @@ def action_to_evidence(result: ActionResult) -> KnowledgeEvidence:
 
 
 __all__ = [
+    "CUSTOMER_TOOL_FAILURE_SUMMARY",
     "ActionDecision",
     "ActionResult",
     "ConversationActionExecutor",

@@ -8,7 +8,11 @@ from uuid import UUID, uuid4
 import pytest
 from sqlalchemy import select
 
-from backend.agent.actions import ActionDecision, ConversationActionExecutor
+from backend.agent.actions import (
+    CUSTOMER_TOOL_FAILURE_SUMMARY,
+    ActionDecision,
+    ConversationActionExecutor,
+)
 from backend.agent.consultation_workflow import (
     CustomerConsultationService,
     CustomerConsultationWorkflowRequest,
@@ -112,6 +116,75 @@ async def test_history_restores_turns_when_timestamps_and_ids_disagree(
 
 
 @pytest.mark.asyncio
+async def test_history_limit_counts_messages_not_turns(
+    session_factory, tenant_a, tenant_a_user,
+) -> None:
+    conversation_id = uuid4()
+    base = datetime.now(timezone.utc)
+    async with session_factory() as session:
+        session.add(Conversation(
+            id=conversation_id, tenant_id=tenant_a.id, user_id=tenant_a_user.id,
+            thread_id=f"limit-{uuid4().hex}", channel="ai_chat", subject="上限", status="open",
+        ))
+        for turn in range(1, 13):
+            created = base + timedelta(seconds=turn)
+            session.add(ConversationMessage(
+                tenant_id=tenant_a.id, conversation_id=conversation_id, author_id=tenant_a_user.id,
+                author_type="user", role="user", body=f"u{turn}", visibility="public",
+                turn_sequence=turn, created_at=created,
+            ))
+            session.add(ConversationMessage(
+                tenant_id=tenant_a.id, conversation_id=conversation_id, author_id=None,
+                author_type="agent", role="assistant", body=f"a{turn}", visibility="public",
+                turn_sequence=turn, created_at=created + timedelta(microseconds=1),
+            ))
+        await session.commit()
+        capped = await load_consultation_history(
+            session, tenant_id=tenant_a.id, conversation_id=conversation_id,
+            actor_id=tenant_a_user.id, limit=20,
+        )
+        odd_window = await load_consultation_history(
+            session, tenant_id=tenant_a.id, conversation_id=conversation_id,
+            actor_id=tenant_a_user.id, limit=5,
+        )
+
+    assert [item.content for item in capped] == [f"{role}{turn}" for turn in range(3, 13) for role in ("u", "a")]
+    assert len(capped) == 20
+    assert [item.content for item in odd_window] == ["u11", "a11", "u12", "a12"]
+
+
+@pytest.mark.asyncio
+async def test_append_same_turn_and_role_keeps_the_first_reply(
+    session_factory, tenant_a, tenant_a_user,
+) -> None:
+    scope = TenantScope(tenant_id=tenant_a.id, actor_id=tenant_a_user.id, actor_type="user")
+    async with UnitOfWork(session_factory, scope=scope) as uow:
+        conversation = await uow.support.create_conversation(
+            scope=scope, customer_id=None, user_id=tenant_a_user.id, channel="ai_chat", subject="幂等",
+        )
+        user = await uow.support.append_conversation_message(
+            scope=scope, conversation_id=conversation.id, author_id=tenant_a_user.id,
+            author_type="user", role="user", body="问", visibility="public",
+        )
+        first = await uow.support.append_conversation_message(
+            scope=scope, conversation_id=conversation.id, author_id=None,
+            author_type="agent", role="assistant", body="第一次", visibility="public",
+            turn_sequence=user.turn_sequence,
+        )
+        second = await uow.support.append_conversation_message(
+            scope=scope, conversation_id=conversation.id, author_id=None,
+            author_type="agent", role="assistant", body="第二次", visibility="public",
+            turn_sequence=user.turn_sequence,
+        )
+        stored = list(await uow.session.scalars(
+            select(ConversationMessage).where(ConversationMessage.conversation_id == conversation.id)
+        ))
+    assert first.id == second.id
+    assert second.body == "第一次"
+    assert len(stored) == 2
+
+
+@pytest.mark.asyncio
 async def test_cancelled_consultation_keeps_the_user_turn(
     session_factory, tenant_a, tenant_a_user,
 ) -> None:
@@ -203,12 +276,17 @@ async def test_chat_refund_checkpoint_uses_conversation_thread_and_audits_the_to
         model_gateway=_RefundGateway(),
         knowledge_retriever=_EmptyRetriever(),
     )
-    await service.run(CustomerConsultationWorkflowRequest(
+    result = await service.run(CustomerConsultationWorkflowRequest(
         thread_id=thread_id,
         state=create_agent_state(
             scope=scope, request_id=request_id, message="我被重复扣费了要退款",
         ),
     ))
+    assert result.status == "human_handoff"
+    assert result.next_action == "human_handoff"
+    assert result.final_response
+    assert "审批" in result.final_response
+    assert "已提交退款申请" not in (result.final_response or "")
 
     async with session_factory() as session:
         checkpoint = await session.scalar(
@@ -266,10 +344,13 @@ async def test_failed_domain_tool_is_audited(
         thread_id="thread-tool-fail",
     )
     assert clarification is None
-    assert result is not None and "业务操作未完成" in result.summary
+    assert result is not None
+    assert result.summary == CUSTOMER_TOOL_FAILURE_SUMMARY
+    assert "payment not found" not in result.summary
     async with session_factory() as session:
         execution = await session.scalar(select(ToolExecution).where(ToolExecution.trace_id == trace_id))
     assert execution is not None
     assert execution.status == "failed"
     assert execution.tool_name == "billing.request"
     assert "payment not found" in (execution.error_summary or "")
+    assert "payment not found" not in str(execution.result_summary)

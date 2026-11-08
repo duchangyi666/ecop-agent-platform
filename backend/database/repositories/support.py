@@ -575,6 +575,17 @@ class SupportRepository(TenantScopedRepository):
             turn_sequence = int(current or 0) + 1
         elif turn_sequence < 1:
             raise DomainError("turn sequence must be positive")
+        existing = await self.session.scalar(
+            select(ConversationMessage).where(
+                ConversationMessage.tenant_id == scope.tenant_id,
+                ConversationMessage.conversation_id == conversation_id,
+                ConversationMessage.turn_sequence == turn_sequence,
+                ConversationMessage.role == role,
+                ConversationMessage.deleted_at.is_(None),
+            )
+        )
+        if existing is not None:
+            return existing
         latest = await self.session.scalar(
             select(func.max(ConversationMessage.created_at)).where(
                 ConversationMessage.tenant_id == scope.tenant_id,
