@@ -56,12 +56,17 @@ def _message_item(message) -> ConversationMessageItem:
     )
 
 
+def _message_sort_key(message) -> tuple:
+    role_rank = {"user": 0, "assistant": 1, "tool": 2, "system": 3}.get(message.role, 4)
+    return (getattr(message, "turn_sequence", 0) or 0, role_rank, message.created_at, str(message.id))
+
+
 def _detail_response(request_id: str, conversation, *, include_internal: bool = False) -> ConversationDetailResponse:
     messages = _visible_messages(conversation, include_internal)
     return ConversationDetailResponse(
         request_id=request_id,
         conversation=_conversation_item(conversation, include_internal=include_internal),
-        messages=[_message_item(message) for message in sorted(messages, key=lambda item: item.created_at)],
+        messages=[_message_item(message) for message in sorted(messages, key=_message_sort_key)],
     )
 
 

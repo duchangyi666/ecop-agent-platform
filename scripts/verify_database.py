@@ -20,7 +20,7 @@ from backend.config import get_settings
 from backend.database.base import Base
 import backend.database.models  # noqa: F401
 
-MIGRATION_HEAD = "012"
+MIGRATION_HEAD = "013"
 
 
 REQUIRED_UNIQUE_CONSTRAINTS = {

@@ -7,7 +7,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import Select, and_, or_, select
+from sqlalchemy import Select, and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -532,6 +532,21 @@ class SupportRepository(TenantScopedRepository):
             statement = statement.where(Conversation.user_id == owner_id)
         return await self.session.scalar(statement)
 
+    async def lock_conversation(
+        self,
+        *,
+        scope: TenantScope,
+        conversation_id: UUID,
+    ) -> None:
+        statement = (
+            self._tenant_visible(select(Conversation.id), Conversation, scope=scope)
+            .where(Conversation.id == conversation_id)
+            .with_for_update()
+        )
+        locked = await self.session.scalar(statement)
+        if locked is None:
+            raise DomainError("conversation not found in tenant scope")
+
     async def append_conversation_message(
         self,
         *,
@@ -542,11 +557,34 @@ class SupportRepository(TenantScopedRepository):
         role: str,
         body: str,
         visibility: str,
+        turn_sequence: int | None = None,
     ) -> ConversationMessage:
         conversation = await self.get_conversation(scope=scope, conversation_id=conversation_id)
         if conversation is None:
             raise DomainError("conversation not found in tenant scope")
+        await self.lock_conversation(scope=scope, conversation_id=conversation_id)
         stored_author_id = await self._get_user_id_in_tenant_or_none(scope=scope, user_id=author_id)
+        if turn_sequence is None:
+            current = await self.session.scalar(
+                select(func.max(ConversationMessage.turn_sequence)).where(
+                    ConversationMessage.tenant_id == scope.tenant_id,
+                    ConversationMessage.conversation_id == conversation_id,
+                    ConversationMessage.deleted_at.is_(None),
+                )
+            )
+            turn_sequence = int(current or 0) + 1
+        elif turn_sequence < 1:
+            raise DomainError("turn sequence must be positive")
+        latest = await self.session.scalar(
+            select(func.max(ConversationMessage.created_at)).where(
+                ConversationMessage.tenant_id == scope.tenant_id,
+                ConversationMessage.conversation_id == conversation_id,
+                ConversationMessage.deleted_at.is_(None),
+            )
+        )
+        created_at = datetime.now(timezone.utc)
+        if latest is not None and created_at <= latest:
+            created_at = latest + timedelta(microseconds=1)
         message = ConversationMessage(
             id=uuid4(),
             tenant_id=scope.tenant_id,
@@ -556,6 +594,8 @@ class SupportRepository(TenantScopedRepository):
             role=role,
             body=body,
             visibility=visibility,
+            turn_sequence=turn_sequence,
+            created_at=created_at,
         )
         self.session.add(message)
         conversation.messages.append(message)
@@ -588,20 +628,15 @@ class SupportRepository(TenantScopedRepository):
         conversation.status = target_status
         if target_status in {"resolved", "closed"}:
             conversation.resolved_at = datetime.now(timezone.utc)
-        stored_author_id = await self._get_user_id_in_tenant_or_none(scope=scope, user_id=actor_id)
-        self.session.add(
-            ConversationMessage(
-                id=uuid4(),
-                tenant_id=scope.tenant_id,
-                conversation_id=conversation_id,
-                author_id=stored_author_id,
-                author_type="system" if actor_id is None else "user",
-                role="system",
-                body=reason[:500],
-                visibility="internal",
-            )
+        await self.append_conversation_message(
+            scope=scope,
+            conversation_id=conversation_id,
+            author_id=actor_id,
+            author_type="system" if actor_id is None else "user",
+            role="system",
+            body=reason[:500],
+            visibility="internal",
         )
-        await self.session.flush()
         return conversation
 
     async def list_tickets(

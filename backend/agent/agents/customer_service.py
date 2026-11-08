@@ -269,7 +269,7 @@ async def stream_customer_answer(
     Used as the LangGraph customer-service node so orchestration stays in-graph.
     Returns the state updates consumed by the parent graph.
     """
-    thread_id = str(state.request_id)
+    thread_id = state.thread_id.strip() if isinstance(state.thread_id, str) and state.thread_id.strip() else str(state.request_id)
     preflight, terminal = _customer_service_preflight(state)
     if terminal:
         return preflight

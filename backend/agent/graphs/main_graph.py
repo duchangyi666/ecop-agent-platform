@@ -29,6 +29,11 @@ def _last_user_message(state: AgentState) -> str:
     return ""
 
 
+def _business_thread_id(state: AgentState) -> str:
+    thread_id = state.thread_id.strip() if isinstance(state.thread_id, str) else ""
+    return thread_id or str(state.request_id)
+
+
 def _as_graph(async_node) -> Any:
     """Wrap an async node in a compiled subgraph so the main graph supports
     both sync invoke() and async ainvoke()."""
@@ -67,7 +72,7 @@ def _make_retrieve_node(
             await event_sink(
                 "evidence",
                 {
-                    "thread_id": str(state.request_id),
+                    "thread_id": _business_thread_id(state),
                     "count": len(evidence),
                     "results": [
                         {
@@ -82,7 +87,10 @@ def _make_retrieve_node(
                 },
             )
         from backend.memory.service import MemoryService
-        memories = await MemoryService(session_factory).recall(scope=state.tenant_scope)
+        try:
+            memories = await MemoryService(session_factory).recall(scope=state.tenant_scope)
+        except Exception:  # noqa: BLE001 - memory lookup must not break the reply
+            memories = []
         return {"knowledge_evidence": evidence, "recalled_memories": memories}
 
     return retrieve_node
@@ -117,7 +125,7 @@ def _make_domain_node(
             state,
             domain=domain,
             user_message=_last_user_message(state),
-            thread_id=str(state.request_id),
+            thread_id=_business_thread_id(state),
         )
         if clarification is not None:
             return {
@@ -130,7 +138,7 @@ def _make_domain_node(
                 await event_sink(
                     "action",
                     {
-                        "thread_id": str(state.request_id),
+                        "thread_id": _business_thread_id(state),
                         "action": action_result.action,
                         "summary": action_result.summary,
                     },

@@ -50,7 +50,14 @@ def evaluate_refund_policy(context: RefundPolicyContext) -> PolicyDecision:
 
 def policy_gate_node(state: AgentState) -> dict[str, object]:
     if state.specialist_result is not None and state.specialist_result.status == "needs_policy_gate":
-        return {"next_action": "human_handoff"}
+        # The placeholder billing agent cannot execute a refund. Leaving status
+        # at the default "completed" made the handoff look like a finished turn
+        # and produced no customer-visible reply.
+        return {
+            "status": "human_handoff",
+            "next_action": "human_handoff",
+            "final_response": "当前退款请求需要人工审批后才能继续，已为您转交审核。",
+        }
     return {"next_action": "finish"}
 
 
